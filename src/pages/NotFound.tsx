@@ -1,21 +1,15 @@
+import { useNavigate } from "react-router";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Link } from "react-router";
+import { Package } from "lucide-react";
 
 export default function NotFound() {
+  const navigate = useNavigate();
   return (
-    <div className="min-h-screen flex items-center justify-center">
-      <Card className="w-full max-w-sm text-center">
-        <CardHeader>
-          <CardTitle className="text-4xl font-bold">404</CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <p className="text-muted-foreground">Page not found</p>
-          <Button asChild className="w-full">
-            <Link to="/">Back to Home</Link>
-          </Button>
-        </CardContent>
-      </Card>
+    <div className="min-h-screen bg-[#F8FAFC] flex flex-col items-center justify-center px-4">
+      <Package size={48} className="text-gray-300 mb-4" />
+      <h1 className="text-2xl font-bold text-[#1E293B] mb-2">Page Not Found</h1>
+      <p className="text-sm text-gray-500 mb-6">The page you are looking for does not exist.</p>
+      <Button className="bg-[#003B7A] hover:bg-[#002B5A]" onClick={() => navigate("/")}>Go Home</Button>
     </div>
   );
 }

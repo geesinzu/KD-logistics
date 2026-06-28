@@ -1,0 +1,91 @@
+import { useState } from "react";
+import { useNavigate } from "react-router";
+import { useAuth } from "@/hooks/useAuth";
+import { trpc } from "@/providers/trpc";
+import { Card, CardContent } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
+import { Plus, Search, QrCode, Truck } from "lucide-react";
+
+export default function Shipments() {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const role = user?.role;
+  const [search, setSearch] = useState("");
+  const [status, setStatus] = useState("");
+
+  const canCreate = role && ["super_admin", "admin", "shipment_creator"].includes(role);
+  const canWarehouse = role && ["super_admin", "admin", "warehouse_supply"].includes(role);
+  const canLogistics = role && ["super_admin", "admin", "logistics_officer"].includes(role);
+
+  const { data, isLoading } = trpc.shipment.list.useQuery({ page: 1, limit: 50, status: status || undefined, search: search || undefined });
+
+  const statusFilters = ["", "created", "labeled", "assigned_to_3pl", "picked_up", "in_transit_with_3pl", "delivered", "completed", "cancelled"];
+
+  return (
+    <div className="p-4 max-w-lg mx-auto">
+      <div className="flex items-center justify-between mb-3">
+        <h1 className="text-lg font-bold text-[#1E293B]">Shipments</h1>
+        {canCreate && (
+          <Button size="sm" className="bg-[#003B7A] hover:bg-[#002B5A] h-9" onClick={() => navigate("/shipments/create")}>
+            <Plus size={14} className="mr-1" /> New
+          </Button>
+        )}
+      </div>
+
+      {/* Search */}
+      <div className="relative mb-3">
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
+        <Input className="pl-9 h-10" placeholder="Search by tracking ID..." value={search} onChange={e => setSearch(e.target.value)} />
+      </div>
+
+      {/* Status filter tabs */}
+      <div className="flex gap-1 overflow-x-auto pb-2 mb-3 scrollbar-hide">
+        {statusFilters.map(s => (
+          <button key={s} onClick={() => setStatus(s)}
+            className={`px-3 py-1 rounded-full text-[10px] whitespace-nowrap font-medium transition-colors ${status === s ? "bg-[#003B7A] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            {s ? STATUS_LABELS[s] || s : "All"}
+          </button>
+        ))}
+      </div>
+
+      {/* Shipments list */}
+      {isLoading && <div className="text-center py-8 text-gray-400">Loading...</div>}
+      <div className="space-y-2">
+        {data?.shipments?.length === 0 && <div className="text-center py-8 text-gray-400">No shipments found</div>}
+        {data?.shipments?.map(s => (
+          <Card key={s.id} className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate(`/shipments/${s.id}`)}>
+            <CardContent className="p-3">
+              <div className="flex items-start justify-between">
+                <div className="flex-1">
+                  <div className="flex items-center gap-2 mb-1">
+                    <span className="text-sm font-semibold text-[#003B7A]">{s.trackingId || `#${s.id}`}</span>
+                    <Badge className={`text-[9px] ${STATUS_COLORS[s.status] || ""}`}>{STATUS_LABELS[s.status] || s.status}</Badge>
+                  </div>
+                  <p className="text-[11px] text-gray-500">To: {s.destinationBranch}</p>
+                  <p className="text-[11px] text-gray-500">{s.actualItemCount || s.estimatedItemCount || 0} items {s.receiverName ? `- ${s.receiverName}` : ""}</p>
+                </div>
+                <div className="flex flex-col items-end gap-1">
+                  {s.status === "created" && canWarehouse && (
+                    <Button size="sm" variant="outline" className="h-7 text-[10px] px-2"
+                      onClick={e => { e.stopPropagation(); navigate(`/warehouse/${s.id}`); }}>
+                      <QrCode size={12} className="mr-1" /> Label
+                    </Button>
+                  )}
+                  {s.status === "labeled" && canLogistics && (
+                    <Button size="sm" variant="outline" className="h-7 text-[10px] px-2"
+                      onClick={e => { e.stopPropagation(); navigate(`/assign-3pl/${s.id}`); }}>
+                      <Truck size={12} className="mr-1" /> Assign
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+    </div>
+  );
+}

@@ -10,6 +10,8 @@ import { signSessionToken, verifySessionToken } from "./session";
 import { users as kimiUsers } from "./platform";
 import { findUserByUnionId, upsertUser } from "../queries/users";
 import type { TokenResponse } from "./types";
+import { authenticateRequest as customAuthenticate } from "../lib/auth";
+import type { User } from "@db/schema";
 
 async function exchangeAuthCode(
   code: string,
@@ -53,22 +55,23 @@ async function verifyAccessToken(
   return { userId, clientId };
 }
 
-export async function authenticateRequest(headers: Headers) {
-  const cookies = cookie.parse(headers.get("cookie") || "");
-  const token = cookies[Session.cookieName];
-  if (!token) {
-    console.warn("[auth] No session cookie found in request.");
-    throw Errors.forbidden("Invalid authentication token.");
+export async function authenticateRequest(headers: Headers): Promise<User | undefined> {
+  // Try custom JWT Bearer token first (phone/password auth)
+  const customUser = await customAuthenticate(headers);
+  if (customUser) return customUser;
+
+  // Fall back to Kimi OAuth session
+  try {
+    const cookies = cookie.parse(headers.get("cookie") || "");
+    const token = cookies[Session.cookieName];
+    if (!token) return undefined;
+    const claim = await verifySessionToken(token);
+    if (!claim) return undefined;
+    const user = await findUserByUnionId(claim.unionId);
+    return user;
+  } catch {
+    return undefined;
   }
-  const claim = await verifySessionToken(token);
-  if (!claim) {
-    throw Errors.forbidden("Invalid authentication token.");
-  }
-  const user = await findUserByUnionId(claim.unionId);
-  if (!user) {
-    throw Errors.forbidden("User not found. Please re-login.");
-  }
-  return user;
 }
 
 export function createOAuthCallbackHandler() {
@@ -105,8 +108,8 @@ export function createOAuthCallbackHandler() {
         unionId: userId,
         name: userProfile.name,
         avatar: userProfile.avatar_url,
-        lastSignInAt: new Date(),
-      });
+        lastLoginAt: new Date(),
+      } as any);
 
       const token = await signSessionToken({
         unionId: userId,
