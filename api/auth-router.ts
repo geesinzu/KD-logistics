@@ -59,10 +59,12 @@ export const authRouter = createRouter({
       const results = await db.select().from(users).where(eq(users.phone, input.phone)).limit(1);
       const user = results[0];
       if (!user) {
+        console.log("[LOGIN] User not found:", input.phone);
         throw new TRPCError({ code: "UNAUTHORIZED", message: ErrorMessages.invalidCredentials });
       }
       const valid = await bcrypt.compare(input.password, user.passwordHash);
       if (!valid) {
+        console.log("[LOGIN] Invalid password for:", input.phone);
         throw new TRPCError({ code: "UNAUTHORIZED", message: ErrorMessages.invalidCredentials });
       }
       if (user.status === "pending") {
@@ -71,10 +73,10 @@ export const authRouter = createRouter({
       if (user.status === "suspended") {
         throw new TRPCError({ code: "FORBIDDEN", message: ErrorMessages.accountSuspended });
       }
-      // Update last login
       await db.update(users).set({ lastLoginAt: new Date() }).where(eq(users.id, user.id));
       const token = await createToken(user.id);
       const { passwordHash: _, ...safeUser } = user;
+      console.log("[LOGIN] Success:", user.name, "role:", user.role);
       return { token, user: safeUser };
     }),
 
