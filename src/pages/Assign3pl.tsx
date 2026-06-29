@@ -23,6 +23,7 @@ export default function Assign3pl() {
   const { data: shipment } = trpc.shipment.getById.useQuery({ id: Number(id) });
   const { data: tpls } = trpc.tpl.list.useQuery();
   const { data: drivers } = trpc.user.list.useQuery({ role: "driver", status: "active" });
+  const driverList = drivers?.users?.filter(u => u.role === "driver" && u.status === "active") ?? [];
 
   const assignMutation = trpc.shipment.assign3pl.useMutation({
     onSuccess: () => {
@@ -93,7 +94,7 @@ export default function Assign3pl() {
               <Select value={driverId} onValueChange={setDriverId}>
                 <SelectTrigger><SelectValue placeholder="Choose driver" /></SelectTrigger>
                 <SelectContent>
-                  {drivers?.users?.map(d => <SelectItem key={d.id} value={String(d.id)}>{d.name} - {d.phone}</SelectItem>)}
+                  {driverList.map(d => <SelectItem key={d.id} value={String(d.id)}>{d.name} - {d.phone}</SelectItem>)}
                 </SelectContent>
               </Select>
             </div>

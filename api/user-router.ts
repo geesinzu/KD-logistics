@@ -3,11 +3,11 @@ import bcrypt from "bcryptjs";
 import { eq, like, desc, sql, and, or } from "drizzle-orm";
 import { users } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, adminQuery, superAdminQuery } from "./middleware";
+import { createRouter, adminQuery, superAdminQuery, authedQuery } from "./middleware";
 import type { KediRole } from "@contracts/constants";
 
 export const userRouter = createRouter({
-  list: adminQuery
+  list: authedQuery
     .input(
       z.object({
         page: z.number().default(1),

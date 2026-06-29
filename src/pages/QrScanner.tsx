@@ -14,8 +14,8 @@ export default function QrScanner() {
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
   const [manualInput, setManualInput] = useState("");
-  const [showManual, setShowManual] = useState(false);
   const [cameraError, setCameraError] = useState("");
+  const [cameraReady, setCameraReady] = useState(false);
   const streamRef = useRef<MediaStream | null>(null);
   const rafRef = useRef<number>(0);
 
@@ -26,7 +26,13 @@ export default function QrScanner() {
 
   const startCamera = useCallback(async () => {
     setCameraError("");
+    setCameraReady(false);
     try {
+      // Check if mediaDevices is available
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        setCameraError("Camera not supported on this device. Use manual entry below.");
+        return;
+      }
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
       });
@@ -35,10 +41,12 @@ export default function QrScanner() {
         videoRef.current.srcObject = stream;
         await videoRef.current.play();
       }
+      setCameraReady(true);
       setScanning(true);
       scanFrame();
     } catch (err: any) {
-      setCameraError("Camera access denied. Please allow camera permission or use manual entry.");
+      console.error("Camera error:", err);
+      setCameraError("Camera access denied. On iPhone: Settings > Safari > Camera > Allow. Use manual entry below.");
       setScanning(false);
     }
   }, []);
@@ -105,7 +113,7 @@ export default function QrScanner() {
         <div className="p-4">
           {/* Camera view */}
           <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-[4/3] mb-4">
-            {scanning ? (
+            {scanning && cameraReady ? (
               <>
                 <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" playsInline muted />
                 <canvas ref={canvasRef} className="hidden" />
@@ -124,38 +132,30 @@ export default function QrScanner() {
                 </button>
               </>
             ) : (
-              <div className="absolute inset-0 flex flex-col items-center justify-center">
-                <QrCode size={64} className="text-white/30 mb-4" />
+              <div className="absolute inset-0 flex flex-col items-center justify-center p-6">
+                <QrCode size={48} className="text-white/30 mb-3" />
                 {cameraError ? (
-                  <>
-                    <p className="text-red-400 text-sm text-center px-8 mb-4">{cameraError}</p>
-                    <Button size="sm" variant="outline" className="text-white border-white/30" onClick={() => setShowManual(true)}>
-                      Enter Manually
-                    </Button>
-                  </>
+                  <p className="text-red-400 text-xs text-center mb-3">{cameraError}</p>
                 ) : (
-                  <Button className="bg-[#003B7A] hover:bg-[#002B5A]" onClick={startCamera}>
-                    <Camera size={16} className="mr-2" /> Open Camera
-                  </Button>
+                  <p className="text-white/50 text-xs text-center mb-3">Tap below to open camera and scan QR code</p>
                 )}
+                <Button className="bg-[#003B7A] hover:bg-[#002B5A]" onClick={startCamera}>
+                  <Camera size={16} className="mr-2" /> Open Camera
+                </Button>
               </div>
             )}
           </div>
 
-          {/* Manual entry */}
-          <div className="text-center">
-            <button onClick={() => setShowManual(!showManual)} className="text-sm text-[#003B7A] hover:underline">
-              {showManual ? "Hide" : "Enter tracking ID manually"}
-            </button>
-            {showManual && (
-              <div className="mt-3 flex gap-2">
-                <input value={manualInput} onChange={e => setManualInput(e.target.value)}
-                  placeholder="Enter tracking ID or QR token"
-                  className="flex-1 h-10 px-3 rounded-lg border border-gray-200 text-sm"
-                  onKeyDown={e => e.key === "Enter" && handleManual()} />
-                <Button size="sm" className="bg-[#003B7A]" onClick={handleManual}>Go</Button>
-              </div>
-            )}
+          {/* Manual entry - always visible as fallback */}
+          <div className="bg-gray-50 rounded-lg p-4">
+            <p className="text-xs text-gray-500 mb-2 text-center font-medium">Or enter tracking ID manually</p>
+            <div className="flex gap-2">
+              <input value={manualInput} onChange={e => setManualInput(e.target.value)}
+                placeholder="Enter tracking ID or QR token"
+                className="flex-1 h-10 px-3 rounded-lg border border-gray-200 text-sm"
+                onKeyDown={e => e.key === "Enter" && handleManual()} />
+              <Button size="sm" className="bg-[#003B7A] h-10 px-4" onClick={handleManual}>Go</Button>
+            </div>
           </div>
         </div>
       )}
