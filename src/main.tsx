@@ -5,18 +5,24 @@ import './index.css'
 import { TRPCProvider } from "@/providers/trpc"
 import App from './App.tsx'
 
-// Register PWA service worker
+// Register PWA service worker with aggressive auto-update
 import { registerSW } from "virtual:pwa-register"
-registerSW({
+const updateSW = registerSW({
   immediate: true,
   onRegisteredSW(swScriptUrl, registration) {
     console.log("[PWA] Service Worker registered:", swScriptUrl)
-    // Check for updates every hour
-    setInterval(() => registration?.update(), 60 * 60 * 1000)
+    if (registration) {
+      // Check for updates every 30 seconds for first 5 minutes, then hourly
+      const fastCheck = setInterval(() => registration.update(), 30 * 1000)
+      setTimeout(() => clearInterval(fastCheck), 5 * 60 * 1000)
+      // Regular hourly check
+      setInterval(() => registration.update(), 60 * 60 * 1000)
+    }
   },
   onNeedRefresh() {
-    console.log("[PWA] New version available - refreshing...")
-    window.location.reload()
+    console.log("[PWA] New version available - activating...")
+    // Skip waiting and activate new service worker immediately
+    updateSW(true)
   },
   onOfflineReady() {
     console.log("[PWA] App ready for offline use")
