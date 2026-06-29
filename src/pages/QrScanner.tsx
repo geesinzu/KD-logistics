@@ -34,7 +34,7 @@ export default function QrScanner() {
       utils.shipment.list.invalidate();
       utils.shipment.getById.invalidate({ id: shipment?.id });
       alert("Pickup confirmed!");
-      navigate("/deliveries");
+      navigate("/driver/deliveries");
     },
     onError: (err: any) => alert(err.message),
   });
@@ -44,7 +44,7 @@ export default function QrScanner() {
       utils.shipment.list.invalidate();
       utils.shipment.getById.invalidate({ id: shipment?.id });
       alert("Drop-off confirmed!");
-      navigate("/deliveries");
+      navigate("/driver/deliveries");
     },
     onError: (err: any) => alert(err.message),
   });
