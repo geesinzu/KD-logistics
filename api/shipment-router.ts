@@ -596,11 +596,17 @@ export const shipmentRouter = createRouter({
     }),
 
   // ── QR SCAN VALIDATE ──
+  // Accepts both QR token (from camera scan) and tracking ID (from manual entry)
   qrValidate: authedQuery
     .input(z.object({ token: z.string() }))
     .query(async ({ input }) => {
       const db = getDb();
-      const result = await db.select().from(shipments).where(eq(shipments.qrCodeToken, input.token)).limit(1);
+      // First try QR token lookup
+      let result = await db.select().from(shipments).where(eq(shipments.qrCodeToken, input.token)).limit(1);
+      // Fall back to tracking ID lookup for manual entry
+      if (!result[0]) {
+        result = await db.select().from(shipments).where(eq(shipments.trackingId, input.token)).limit(1);
+      }
       if (!result[0]) return null;
       const branch = await db.select().from(branches).where(eq(branches.id, result[0].destBranchId)).limit(1);
       return { ...result[0], destinationBranch: branch[0]?.name || "Unknown" };
