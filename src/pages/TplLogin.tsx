@@ -4,7 +4,7 @@ import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Truck } from "lucide-react";
+
 
 export default function TplLogin() {
   const navigate = useNavigate();
@@ -31,9 +31,7 @@ export default function TplLogin() {
     <div className="min-h-screen bg-gradient-to-b from-[#0F172A] to-[#1E3A5F] flex flex-col items-center justify-center px-4">
       <div className="bg-white rounded-2xl shadow-xl p-8 w-full max-w-sm">
         <div className="flex flex-col items-center mb-6">
-          <div className="w-16 h-16 bg-indigo-600 rounded-full flex items-center justify-center mb-3">
-            <Truck size={32} className="text-white" />
-          </div>
+          <img src="/kedi-logo.png" alt="KEDI Healthcare" className="h-16 mb-3" />
           <h1 className="text-xl font-bold text-[#1E293B]">3PL Portal</h1>
           <p className="text-sm text-gray-500">Logistics Partner Login</p>
         </div>

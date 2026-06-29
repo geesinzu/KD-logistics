@@ -72,7 +72,7 @@ export default function Assign3pl() {
               <SelectContent>
                 {tpls?.map(t => (
                   <SelectItem key={t.id} value={String(t.id)}>
-                    {t.name} ({t.pickupOptions === "both" ? "Pickup + Drop-off" : t.pickupOptions === "dropoff_only" ? "Drop-off only" : "Pickup only"})
+                    {t.name}
                   </SelectItem>
                 ))}
               </SelectContent>
