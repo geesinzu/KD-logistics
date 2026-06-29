@@ -112,12 +112,12 @@ export default function ShipmentDetail() {
             </Button>
           )}
           {isDriverAssigned && shipment.status === "waiting_driver_pickup" && (
-            <Button className="w-full bg-green-600 hover:bg-green-700 h-12" onClick={() => navigate("/scan")}>
+            <Button className="w-full bg-green-600 hover:bg-green-700 h-12" onClick={() => navigate(`/scan?action=pickup&shipmentId=${shipment.id}`)}>
               <QrCode size={16} className="mr-2" /> Scan to Pickup
             </Button>
           )}
           {shipment.status === "picked_up" && isDriverAssigned && (
-            <Button className="w-full bg-[#003B7A] hover:bg-[#002B5A] h-12" onClick={() => navigate("/scan")}>
+            <Button className="w-full bg-[#003B7A] hover:bg-[#002B5A] h-12" onClick={() => navigate(`/scan?action=dropoff&shipmentId=${shipment.id}`)}>
               <MapPin size={16} className="mr-2" /> Scan at 3PL Drop-off
             </Button>
           )}
