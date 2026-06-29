@@ -11,6 +11,7 @@
     "module": "ESNext",
     "types": [
       "vite/client",
+      "vite-plugin-pwa/client",
       "node"
     ],
     "skipLibCheck": true,
