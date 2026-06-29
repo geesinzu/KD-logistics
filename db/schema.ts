@@ -73,7 +73,7 @@ export type ThirdPartyLogistics = typeof thirdPartyLogistics.$inferSelect;
 // ── SHIPMENTS ──
 export const shipments = mysqlTable("shipments", {
   id: serial("id").primaryKey(),
-  trackingId: varchar("tracking_id", { length: 15 }).unique(),
+  trackingId: varchar("tracking_id", { length: 20 }).unique(),
   qrCodeToken: varchar("qr_code_token", { length: 255 }).unique(),
 
   // Creator
