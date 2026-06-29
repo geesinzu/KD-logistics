@@ -14,6 +14,7 @@ import DriverDeliveries from "./pages/DriverDeliveries";
 import QrScanner from "./pages/QrScanner";
 import Users from "./pages/Users";
 import Profile from "./pages/Profile";
+import Chat from "./pages/Chat";
 import NotFound from "./pages/NotFound";
 import { AppLayout } from "./components/AppLayout";
 
@@ -36,6 +37,9 @@ export default function App() {
 
       {/* 3PL Portal - standalone layout */}
       <Route path="/tpl-portal" element={<TplPortal />} />
+
+      {/* Chat - accessible to everyone */}
+      <Route path="/chat" element={<Chat />} />
 
       {/* Not found */}
       <Route path="*" element={<NotFound />} />

@@ -375,6 +375,36 @@ export const shipmentRouter = createRouter({
       return { success: true, newStatus };
     }),
 
+  // ── TPL: UPDATE ESTIMATED DELIVERY DATE ──
+  tplUpdateDeliveryDate: authedQuery
+    .input(z.object({
+      shipmentId: z.number(),
+      estimatedDeliveryDate: z.string(), // ISO date string
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const actorId = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
+      const actorRole = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
+
+      await db.update(shipments)
+        .set({ estimatedDeliveryDate: new Date(input.estimatedDeliveryDate) })
+        .where(eq(shipments.id, input.shipmentId));
+
+      await db.insert(trackingEvents).values({
+        shipmentId: input.shipmentId,
+        eventType: "note_added",
+        oldStatus: null,
+        newStatus: null,
+        notes: `Estimated delivery date updated to ${new Date(input.estimatedDeliveryDate).toLocaleDateString("en-NG")}. ${input.notes || ""}`,
+        createdBy: actorId,
+        actorRole,
+        actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+      });
+
+      return { success: true };
+    }),
+
   // ── COMPLETE SHIPMENT (Step 9) ──
   complete: authedQuery
     .input(z.object({ shipmentId: z.number() }))
@@ -406,6 +436,10 @@ export const shipmentRouter = createRouter({
       if (ctx.user?.role === "driver") {
         conditions.push(eq(shipments.assignedDriverId, ctx.user.id));
       }
+      // Branch managers only see shipments to their branch
+      if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
+        conditions.push(eq(shipments.destBranchId, ctx.user.branchId));
+      }
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 
@@ -420,6 +454,7 @@ export const shipmentRouter = createRouter({
         tplId: shipments.tplId,
         assignedDriverId: shipments.assignedDriverId,
         priority: shipments.priority,
+        estimatedDeliveryDate: shipments.estimatedDeliveryDate,
         createdAt: shipments.createdAt,
         updatedAt: shipments.updatedAt,
       })
@@ -491,6 +526,8 @@ export const shipmentRouter = createRouter({
         updatedAt: shipments.updatedAt,
         deliveredQty: shipments.deliveredQty,
         remainingQty: shipments.remainingQty,
+        estimatedDeliveryDate: shipments.estimatedDeliveryDate,
+        specialInstructions: shipments.specialInstructions,
       })
         .from(shipments)
         .where(where)
