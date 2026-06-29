@@ -138,4 +138,44 @@ export const userRouter = createRouter({
       }, {} as Record<string, number>),
     };
   }),
+
+  updateProfile: authedQuery
+    .input(z.object({
+      name: z.string().min(2).optional(),
+      email: z.string().email().optional().or(z.literal("")),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const userId = ctx.user?.id ?? 0;
+      const updates: any = {};
+      if (input.name) updates.name = input.name;
+      if (input.email !== undefined) updates.email = input.email || null;
+      await db.update(users).set(updates).where(eq(users.id, userId));
+      return { success: true };
+    }),
+
+  uploadProfilePicture: authedQuery
+    .input(z.object({
+      imageBase64: z.string().min(100),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const userId = ctx.user?.id ?? 0;
+
+      // Validate it's a real image (check base64 header)
+      if (!input.imageBase64.startsWith("data:image/")) {
+        throw new Error("Invalid image format. Must be a valid image.");
+      }
+
+      // Limit size check (rough estimate: base64 is ~4/3 of actual size)
+      if (input.imageBase64.length > 4 * 1024 * 1024) {
+        throw new Error("Image too large. Max 3MB.");
+      }
+
+      await db.update(users)
+        .set({ profilePicture: input.imageBase64 })
+        .where(eq(users.id, userId));
+
+      return { success: true, profilePicture: input.imageBase64 };
+    }),
 });

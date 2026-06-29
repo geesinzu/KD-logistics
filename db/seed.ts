@@ -66,24 +66,19 @@ async function seed() {
   }
   console.log("TPL users seeded");
 
-  // ── Seed KEDI Users ──
+  // ── Seed Super Admin Only: Gbenga Adebayo ──
   const passwordHash = await bcrypt.hash("kedi1234", 10);
-  const userValues = [
-    { name: "Terry Solomon", phone: "+234 801 000 0001", passwordHash, role: "super_admin" as const, status: "active" as const, branchId: 19 },
-    { name: "Admin User", phone: "+234 801 000 0002", passwordHash, role: "admin" as const, status: "active" as const, branchId: 19 },
-    { name: "Logistics Officer", phone: "+234 801 000 0003", passwordHash, role: "logistics_officer" as const, status: "active" as const, branchId: 19 },
-    { name: "Warehouse Officer", phone: "+234 801 000 0004", passwordHash, role: "warehouse_supply" as const, status: "active" as const, branchId: 19 },
-    { name: "Branch Manager PH", phone: "+234 801 000 0005", passwordHash, role: "branch_manager" as const, status: "active" as const, branchId: 7 },
-    { name: "Driver John", phone: "+234 801 000 0006", passwordHash, role: "driver" as const, status: "active" as const, branchId: 19 },
-    { name: "Driver Emmanuel", phone: "+234 801 000 0007", passwordHash, role: "driver" as const, status: "active" as const, branchId: 19 },
-    { name: "Shipment Creator", phone: "+234 801 000 0008", passwordHash, role: "shipment_creator" as const, status: "active" as const, branchId: 19 },
-  ];
-  for (const u of userValues) {
-    await db.insert(schema.users).values(u as any).onDuplicateKeyUpdate({
-      set: { name: u.name, passwordHash: u.passwordHash, role: u.role, status: u.status as any },
-    });
-  }
-  console.log("KEDI users seeded");
+  await db.insert(schema.users).values({
+    name: "Gbenga Adebayo",
+    phone: "08118018662",
+    passwordHash,
+    role: "super_admin" as const,
+    status: "active" as const,
+    branchId: 19,
+  } as any).onDuplicateKeyUpdate({
+    set: { name: "Gbenga Adebayo", passwordHash, role: "super_admin" as any, status: "active" as any },
+  });
+  console.log("Super admin seeded: Gbenga Adebayo (08118018662)");
 
   console.log("Seed complete!");
   connection.end();
