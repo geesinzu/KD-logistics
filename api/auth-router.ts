@@ -11,7 +11,9 @@ import { ErrorMessages } from "@contracts/constants";
 export const authRouter = createRouter({
   me: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
-    const results = await db.select().from(users).where(eq(users.id, ctx.user.id)).limit(1);
+    const userId = ctx.user?.id ?? ctx.tplUser?.id;
+    if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
+    const results = await db.select().from(users).where(eq(users.id, userId)).limit(1);
     const user = results[0];
     if (!user) throw new TRPCError({ code: "NOT_FOUND" });
     const { passwordHash: _, ...safeUser } = user;

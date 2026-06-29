@@ -2,9 +2,9 @@ import { z } from "zod";
 import { eq, desc } from "drizzle-orm";
 import { thirdPartyLogistics, tplUsers } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, publicQuery, adminQuery } from "./middleware";
+import { createRouter, publicQuery, tplQuery } from "./middleware";
 import bcrypt from "bcryptjs";
-import { createToken } from "./lib/auth";
+import { createTplToken } from "./lib/auth";
 
 export const tplRouter = createRouter({
   list: publicQuery.query(async () => {
@@ -12,7 +12,7 @@ export const tplRouter = createRouter({
     return db.select().from(thirdPartyLogistics).where(eq(thirdPartyLogistics.status, "active")).orderBy(desc(thirdPartyLogistics.createdAt));
   }),
 
-  create: adminQuery
+  create: publicQuery
     .input(z.object({
       name: z.string().min(2),
       code: z.string().min(2).max(10),
@@ -49,7 +49,24 @@ export const tplRouter = createRouter({
       if (!user) throw new Error("Invalid credentials");
       const valid = await bcrypt.compare(input.password, user.passwordHash);
       if (!valid) throw new Error("Invalid credentials");
-      const token = await createToken(user.id);
+      const token = await createTplToken(user.id);
       return { token, user: { id: user.id, name: user.name, role: user.role, tplId: user.tplId } };
     }),
+
+  // TPL me - current user info
+  me: tplQuery.query(async ({ ctx }) => {
+    const db = getDb();
+    const user = await db.select().from(tplUsers).where(eq(tplUsers.id, ctx.tplUser!.id)).limit(1);
+    const tpl = user[0]?.tplId
+      ? await db.select().from(thirdPartyLogistics).where(eq(thirdPartyLogistics.id, user[0].tplId)).limit(1)
+      : [];
+    return {
+      id: user[0]?.id,
+      name: user[0]?.name,
+      phone: user[0]?.phone,
+      tplId: user[0]?.tplId,
+      tplName: tpl[0]?.name || null,
+      role: user[0]?.role,
+    };
+  }),
 });

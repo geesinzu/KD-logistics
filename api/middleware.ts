@@ -10,7 +10,21 @@ const t = initTRPC.context<TrpcContext>().create({
 export const createRouter = t.router;
 export const publicQuery = t.procedure;
 
+// ── AUTH MIDDLEWARE ──
+// Allows KEDI users OR TPL users
 const requireAuth = t.middleware(async (opts) => {
+  const { ctx, next } = opts;
+  if (!ctx.user && !ctx.tplUser) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: ErrorMessages.unauthenticated,
+    });
+  }
+  return next({ ctx: { ...ctx, user: ctx.user, tplUser: ctx.tplUser } });
+});
+
+// KEDI users only
+const requireKediUser = t.middleware(async (opts) => {
   const { ctx, next } = opts;
   if (!ctx.user) {
     throw new TRPCError({
@@ -19,6 +33,18 @@ const requireAuth = t.middleware(async (opts) => {
     });
   }
   return next({ ctx: { ...ctx, user: ctx.user } });
+});
+
+// TPL users only
+const requireTplUser = t.middleware(async (opts) => {
+  const { ctx, next } = opts;
+  if (!ctx.tplUser) {
+    throw new TRPCError({
+      code: "UNAUTHORIZED",
+      message: "3PL authentication required",
+    });
+  }
+  return next({ ctx: { ...ctx, tplUser: ctx.tplUser } });
 });
 
 function requireRoles(roles: string[]) {
@@ -34,31 +60,20 @@ function requireRoles(roles: string[]) {
   });
 }
 
+// ── BASE PROCEDURES ──
 export const authedQuery = t.procedure.use(requireAuth);
-export const adminQuery = authedQuery.use(requireRoles(["super_admin", "admin"]));
-export const superAdminQuery = authedQuery.use(requireRoles(["super_admin"]));
 
-// Shipment creators
-export const shipmentCreatorQuery = authedQuery.use(
-  requireRoles(["super_admin", "admin", "shipment_creator"])
-);
+// KEDI-only procedures
+export const kediQuery = t.procedure.use(requireKediUser);
 
-// Warehouse
-export const warehouseQuery = authedQuery.use(
-  requireRoles(["super_admin", "admin", "warehouse_supply"])
-);
+// TPL-only procedures
+export const tplQuery = t.procedure.use(requireTplUser);
 
-// Logistics
-export const logisticsQuery = authedQuery.use(
-  requireRoles(["super_admin", "admin", "logistics_officer"])
-);
-
-// Driver
-export const driverQuery = authedQuery.use(
-  requireRoles(["super_admin", "admin", "driver"])
-);
-
-// Branch manager
-export const branchManagerQuery = authedQuery.use(
-  requireRoles(["super_admin", "admin", "branch_manager"])
-);
+// Role-based KEDI procedures
+export const adminQuery = kediQuery.use(requireRoles(["super_admin", "admin"]));
+export const superAdminQuery = kediQuery.use(requireRoles(["super_admin"]));
+export const shipmentCreatorQuery = kediQuery.use(requireRoles(["super_admin", "admin", "shipment_creator"]));
+export const warehouseQuery = kediQuery.use(requireRoles(["super_admin", "admin", "warehouse_supply"]));
+export const logisticsQuery = kediQuery.use(requireRoles(["super_admin", "admin", "logistics_officer"]));
+export const driverQuery = kediQuery.use(requireRoles(["super_admin", "admin", "driver"]));
+export const branchManagerQuery = kediQuery.use(requireRoles(["super_admin", "admin", "branch_manager"]));

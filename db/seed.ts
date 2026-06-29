@@ -9,7 +9,7 @@ const db = drizzle(connection, { schema, mode: "planetscale" });
 async function seed() {
   console.log("Seeding database...");
 
-  // ── Seed ALL 18 Branches ──
+  // ── Seed ALL 19 Branches (18 + Lagos HQ) ──
   await db.insert(schema.branches).values([
     { name: "Abeokuta", code: "ABK", city: "Abeokuta", status: "active" },
     { name: "Akure", code: "AKU", city: "Akure", status: "active" },
@@ -31,12 +31,12 @@ async function seed() {
     { name: "Uyo", code: "UYO", city: "Uyo", status: "active" },
     { name: "Lagos HQ", code: "LHQ", city: "Lagos", address: "Oregun Ikeja", status: "active" },
   ]).onDuplicateKeyUpdate({ set: { name: "name" as any } });
-  console.log("All 19 branches (18 + Lagos HQ) seeded");
+  console.log("19 branches seeded");
 
   // ── Seed 3PLs ──
   await db.insert(schema.thirdPartyLogistics).values([
+    { name: "S.generation Logistics", code: "SGNL", phone: "+234 805 234 5678", email: "contact@sgeneration.com.ng", address: "Oshodi Apapa Expressway", pickupOptions: "dropoff_only", contactPerson: "Mrs. Okonkwo", status: "active" },
     { name: "Knightpride Logistics", code: "KNGL", phone: "+234 803 123 4567", email: "info@knightpride.com.ng", address: "Lagos-Abuja Expressway", pickupOptions: "both", contactPerson: "Mr. Adebayo", status: "active" },
-    { name: "S.Generation Logistics", code: "SGNL", phone: "+234 805 234 5678", email: "contact@sgeneration.com.ng", address: "Oshodi Apapa Expressway", pickupOptions: "dropoff_only", contactPerson: "Mrs. Okonkwo", status: "active" },
     { name: "Emmbay Logistics", code: "EMBL", phone: "+234 807 345 6789", email: "support@emmbay.com.ng", address: "Murtala Muhammed Airport Road", pickupOptions: "both", contactPerson: "Mr. Ibrahim", status: "active" },
   ]).onDuplicateKeyUpdate({ set: { name: "name" as any } });
   console.log("3PLs seeded");
@@ -44,8 +44,8 @@ async function seed() {
   // ── Seed TPL Users ──
   const tplPw = await bcrypt.hash("tpl1234", 10);
   await db.insert(schema.tplUsers).values([
-    { tplId: 1, name: "Knightpride Staff", phone: "+234 803 111 1111", passwordHash: tplPw, role: "tpl_staff", status: "active" },
-    { tplId: 2, name: "S.Gen Staff", phone: "+234 805 222 2222", passwordHash: tplPw, role: "tpl_staff", status: "active" },
+    { tplId: 1, name: "S.gen Staff", phone: "+234 805 222 2222", passwordHash: tplPw, role: "tpl_staff", status: "active" },
+    { tplId: 2, name: "Knightpride Staff", phone: "+234 803 111 1111", passwordHash: tplPw, role: "tpl_staff", status: "active" },
     { tplId: 3, name: "Emmbay Staff", phone: "+234 807 333 3333", passwordHash: tplPw, role: "tpl_staff", status: "active" },
   ]).onDuplicateKeyUpdate({ set: { name: "name" as any } });
   console.log("TPL users seeded");
