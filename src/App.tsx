@@ -2,6 +2,8 @@ import { Routes, Route, Navigate } from "react-router";
 import { useAuth } from "./hooks/useAuth";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import TplLogin from "./pages/TplLogin";
+import TplPortal from "./pages/TplPortal";
 import Dashboard from "./pages/Dashboard";
 import Shipments from "./pages/Shipments";
 import ShipmentDetail from "./pages/ShipmentDetail";
@@ -27,9 +29,18 @@ function ProtectedRoute({ children, requiredRoles }: { children: React.ReactNode
 export default function App() {
   return (
     <Routes>
+      {/* Public routes */}
       <Route path="/login" element={<Login />} />
       <Route path="/signup" element={<Signup />} />
+      <Route path="/tpl-login" element={<TplLogin />} />
+
+      {/* 3PL Portal - standalone layout */}
+      <Route path="/tpl-portal" element={<TplPortal />} />
+
+      {/* Not found */}
       <Route path="*" element={<NotFound />} />
+
+      {/* KEDI App with bottom nav */}
       <Route element={<AppLayout />}>
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/shipments" element={<ProtectedRoute><Shipments /></ProtectedRoute>} />

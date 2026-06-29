@@ -19,13 +19,13 @@ function generateQrToken(): string {
 
 export const shipmentRouter = createRouter({
   // ── CREATE SHIPMENT (Step 1) ──
+  // Origin is always Lagos HQ (id: 19). No item count at creation.
   create: shipmentCreatorQuery
     .input(z.object({
       destBranchId: z.number(),
       receiverName: z.string().optional(),
       receiverPhone: z.string().optional(),
       description: z.string().optional(),
-      estimatedItemCount: z.number().optional(),
       priority: z.enum(["normal", "urgent"]).default("normal"),
     }))
     .mutation(async ({ input, ctx }) => {
@@ -33,11 +33,11 @@ export const shipmentRouter = createRouter({
       const result = await db.insert(shipments).values({
         createdBy: ctx.user.id,
         creatorRole: ctx.user.role,
+        originBranchId: 19, // Lagos HQ
         destBranchId: input.destBranchId,
         receiverName: input.receiverName,
         receiverPhone: input.receiverPhone,
         description: input.description,
-        estimatedItemCount: input.estimatedItemCount,
         priority: input.priority,
         status: "created",
       });
@@ -326,6 +326,7 @@ export const shipmentRouter = createRouter({
       limit: z.number().default(20),
       status: z.string().optional(),
       search: z.string().optional(),
+      tplId: z.number().optional(),
     }).optional())
     .query(async ({ input, ctx }) => {
       const db = getDb();
@@ -335,6 +336,7 @@ export const shipmentRouter = createRouter({
 
       const conditions = [];
       if (input?.status) conditions.push(eq(shipments.status, input.status as any));
+      if (input?.tplId) conditions.push(eq(shipments.tplId, input.tplId));
 
       // Role-based filtering
       if (ctx.user.role === "driver") {

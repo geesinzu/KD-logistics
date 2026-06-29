@@ -112,15 +112,47 @@ export const TPL_PICKUP_TYPES = [
 ] as const;
 
 // ── BRANCH CODES FOR TRACKING IDs ──
+// Format: KEDI-[2-LETTER-CODE][YY][MM] e.g. KEDI-PH2606
 export const BRANCH_TRACKING_CODES: Record<string, string> = {
-  "Port Harcourt": "PH",
-  "Kano": "KN",
-  "Abuja": "AB",
-  "Lagos HQ": "LH",
+  "Abeokuta": "AB",
+  "Akure": "AR",
+  "Benin": "BN",
+  "Onitsha": "ON",
   "Bauchi": "BC",
-  "Yola": "YL",
-  "Owerri": "OW",
+  "Bayelsa": "BY",
+  "PH": "PH",
   "Enugu": "EN",
+  "Ilorin": "IL",
+  "Osogbo": "OS",
   "Ibadan": "IB",
+  "Kano": "KN",
   "Kaduna": "KD",
+  "Kedi-Abuja": "AB",
+  "Yola": "YL",
+  "Ikeja": "IK",
+  "Apapa": "AP",
+  "Uyo": "UY",
+  "Lagos HQ": "LH",
 };
+
+// ── ALL BRANCHES ──
+export const BRANCHES = [
+  { name: "Abeokuta", city: "Abeokuta" },
+  { name: "Akure", city: "Akure" },
+  { name: "Benin", city: "Benin City" },
+  { name: "Onitsha", city: "Onitsha" },
+  { name: "Bauchi", city: "Bauchi" },
+  { name: "Bayelsa", city: "Yenagoa" },
+  { name: "PH", city: "Port Harcourt" },
+  { name: "Enugu", city: "Enugu" },
+  { name: "Ilorin", city: "Ilorin" },
+  { name: "Osogbo", city: "Osogbo" },
+  { name: "Ibadan", city: "Ibadan" },
+  { name: "Kano", city: "Kano" },
+  { name: "Kaduna", city: "Kaduna" },
+  { name: "Kedi-Abuja", city: "Abuja" },
+  { name: "Yola", city: "Yola" },
+  { name: "Ikeja", city: "Ikeja, Lagos" },
+  { name: "Apapa", city: "Apapa, Lagos" },
+  { name: "Uyo", city: "Uyo" },
+];

@@ -80,7 +80,8 @@ export const shipments = mysqlTable("shipments", {
   createdBy: bigint("created_by", { mode: "number", unsigned: true }).notNull(),
   creatorRole: varchar("creator_role", { length: 30 }),
 
-  // Destination
+  // Origin & Destination
+  originBranchId: bigint("origin_branch_id", { mode: "number", unsigned: true }).notNull().default(4),
   destBranchId: bigint("dest_branch_id", { mode: "number", unsigned: true }).notNull(),
 
   // Recipient

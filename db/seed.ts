@@ -9,16 +9,29 @@ const db = drizzle(connection, { schema, mode: "planetscale" });
 async function seed() {
   console.log("Seeding database...");
 
-  // ── Seed Branches ──
+  // ── Seed ALL 18 Branches ──
   await db.insert(schema.branches).values([
-    { name: "Port Harcourt", code: "PH", city: "Port Harcourt", address: "Trans Amadi Industrial Layout", status: "active" },
-    { name: "Kano", code: "KN", city: "Kano", address: "Sabon Gari Market", status: "active" },
-    { name: "Abuja", code: "AB", city: "Abuja", address: "Wuse Zone 5", status: "active" },
-    { name: "Lagos HQ", code: "LH", city: "Lagos", address: "Oregun Ikeja", status: "active" },
-    { name: "Bauchi", code: "BC", city: "Bauchi", address: "Central Market", status: "active" },
-    { name: "Yola", code: "YL", city: "Yola", address: "Jimeta Market", status: "active" },
+    { name: "Abeokuta", code: "ABK", city: "Abeokuta", status: "active" },
+    { name: "Akure", code: "AKU", city: "Akure", status: "active" },
+    { name: "Benin", code: "BEN", city: "Benin City", status: "active" },
+    { name: "Onitsha", code: "ONT", city: "Onitsha", status: "active" },
+    { name: "Bauchi", code: "BCU", city: "Bauchi", status: "active" },
+    { name: "Bayelsa", code: "BYL", city: "Yenagoa", status: "active" },
+    { name: "PH", code: "PHC", city: "Port Harcourt", status: "active" },
+    { name: "Enugu", code: "ENU", city: "Enugu", status: "active" },
+    { name: "Ilorin", code: "ILR", city: "Ilorin", status: "active" },
+    { name: "Osogbo", code: "OSG", city: "Osogbo", status: "active" },
+    { name: "Ibadan", code: "IBD", city: "Ibadan", status: "active" },
+    { name: "Kano", code: "KAN", city: "Kano", status: "active" },
+    { name: "Kaduna", code: "KAD", city: "Kaduna", status: "active" },
+    { name: "Kedi-Abuja", code: "ABJ", city: "Abuja", status: "active" },
+    { name: "Yola", code: "YOL", city: "Yola", status: "active" },
+    { name: "Ikeja", code: "IKE", city: "Ikeja, Lagos", status: "active" },
+    { name: "Apapa", code: "APA", city: "Apapa, Lagos", status: "active" },
+    { name: "Uyo", code: "UYO", city: "Uyo", status: "active" },
+    { name: "Lagos HQ", code: "LHQ", city: "Lagos", address: "Oregun Ikeja", status: "active" },
   ]).onDuplicateKeyUpdate({ set: { name: "name" as any } });
-  console.log("Branches seeded");
+  console.log("All 19 branches (18 + Lagos HQ) seeded");
 
   // ── Seed 3PLs ──
   await db.insert(schema.thirdPartyLogistics).values([
@@ -28,19 +41,28 @@ async function seed() {
   ]).onDuplicateKeyUpdate({ set: { name: "name" as any } });
   console.log("3PLs seeded");
 
-  // ── Seed Users ──
+  // ── Seed TPL Users ──
+  const tplPw = await bcrypt.hash("tpl1234", 10);
+  await db.insert(schema.tplUsers).values([
+    { tplId: 1, name: "Knightpride Staff", phone: "+234 803 111 1111", passwordHash: tplPw, role: "tpl_staff", status: "active" },
+    { tplId: 2, name: "S.Gen Staff", phone: "+234 805 222 2222", passwordHash: tplPw, role: "tpl_staff", status: "active" },
+    { tplId: 3, name: "Emmbay Staff", phone: "+234 807 333 3333", passwordHash: tplPw, role: "tpl_staff", status: "active" },
+  ]).onDuplicateKeyUpdate({ set: { name: "name" as any } });
+  console.log("TPL users seeded");
+
+  // ── Seed KEDI Users ──
   const passwordHash = await bcrypt.hash("kedi1234", 10);
   await db.insert(schema.users).values([
-    { name: "Terry Solomon", phone: "+234 801 000 0001", passwordHash, role: "super_admin", status: "active", branchId: 4 },
-    { name: "Admin User", phone: "+234 801 000 0002", passwordHash, role: "admin", status: "active", branchId: 4 },
-    { name: "Logistics Officer 1", phone: "+234 801 000 0003", passwordHash, role: "logistics_officer", status: "active", branchId: 4 },
-    { name: "Warehouse Officer", phone: "+234 801 000 0004", passwordHash, role: "warehouse_supply", status: "active", branchId: 4 },
-    { name: "Branch Manager PH", phone: "+234 801 000 0005", passwordHash, role: "branch_manager", status: "active", branchId: 1 },
-    { name: "Driver John", phone: "+234 801 000 0006", passwordHash, role: "driver", status: "active", branchId: 4 },
-    { name: "Driver Emmanuel", phone: "+234 801 000 0007", passwordHash, role: "driver", status: "active", branchId: 4 },
-    { name: "Shipment Creator", phone: "+234 801 000 0008", passwordHash, role: "shipment_creator", status: "active", branchId: 4 },
+    { name: "Terry Solomon", phone: "+234 801 000 0001", passwordHash, role: "super_admin", status: "active", branchId: 19 },
+    { name: "Admin User", phone: "+234 801 000 0002", passwordHash, role: "admin", status: "active", branchId: 19 },
+    { name: "Logistics Officer", phone: "+234 801 000 0003", passwordHash, role: "logistics_officer", status: "active", branchId: 19 },
+    { name: "Warehouse Officer", phone: "+234 801 000 0004", passwordHash, role: "warehouse_supply", status: "active", branchId: 19 },
+    { name: "Branch Manager PH", phone: "+234 801 000 0005", passwordHash, role: "branch_manager", status: "active", branchId: 7 },
+    { name: "Driver John", phone: "+234 801 000 0006", passwordHash, role: "driver", status: "active", branchId: 19 },
+    { name: "Driver Emmanuel", phone: "+234 801 000 0007", passwordHash, role: "driver", status: "active", branchId: 19 },
+    { name: "Shipment Creator", phone: "+234 801 000 0008", passwordHash, role: "shipment_creator", status: "active", branchId: 19 },
   ]).onDuplicateKeyUpdate({ set: { name: "name" as any } });
-  console.log("Users seeded");
+  console.log("KEDI users seeded");
 
   console.log("Seed complete!");
   connection.end();

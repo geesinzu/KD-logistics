@@ -1,67 +1,158 @@
-import { useState } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { ArrowLeft, QrCode, CheckCircle2, XCircle } from "lucide-react";
+import { ArrowLeft, QrCode, CheckCircle2, XCircle, Camera, CameraOff } from "lucide-react";
 
 export default function QrScanner() {
   const navigate = useNavigate();
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState<string | null>(null);
   const [manualInput, setManualInput] = useState("");
   const [showManual, setShowManual] = useState(false);
+  const [cameraError, setCameraError] = useState("");
+  const streamRef = useRef<MediaStream | null>(null);
+  const rafRef = useRef<number>(0);
 
   const { data: shipment, isLoading } = trpc.shipment.qrValidate.useQuery(
     { token: scanResult || "" },
     { enabled: !!scanResult }
   );
 
-  const handleScan = () => {
-    // Simulate QR scan - in real implementation this would use camera + jsQR
-    setScanResult("demo_qr_token");
-  };
+  const startCamera = useCallback(async () => {
+    setCameraError("");
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
+      });
+      streamRef.current = stream;
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+        await videoRef.current.play();
+      }
+      setScanning(true);
+      scanFrame();
+    } catch (err: any) {
+      setCameraError("Camera access denied. Please allow camera permission or use manual entry.");
+      setScanning(false);
+    }
+  }, []);
+
+  const stopCamera = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(t => t.stop());
+      streamRef.current = null;
+    }
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    setScanning(false);
+  }, []);
+
+  const scanFrame = useCallback(() => {
+    if (!videoRef.current || !canvasRef.current) return;
+    const video = videoRef.current;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d", { willReadFrequently: true });
+    if (!ctx || video.readyState !== video.HAVE_ENOUGH_DATA) {
+      rafRef.current = requestAnimationFrame(scanFrame);
+      return;
+    }
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    // Dynamic import of jsQR
+    import("jsqr").then(({ default: jsQR }) => {
+      const code = jsQR(imageData.data, imageData.width, imageData.height, {
+        inversionAttempts: "dontInvert",
+      });
+      if (code?.data) {
+        stopCamera();
+        setScanResult(code.data);
+        return;
+      }
+      rafRef.current = requestAnimationFrame(scanFrame);
+    });
+  }, [stopCamera]);
+
+  useEffect(() => {
+    return () => { stopCamera(); };
+  }, [stopCamera]);
 
   const handleManual = () => {
-    if (manualInput.trim()) {
-      setScanResult(manualInput.trim());
-    }
+    if (manualInput.trim()) setScanResult(manualInput.trim());
+  };
+
+  const reset = () => {
+    setScanResult(null);
+    setManualInput("");
+    setCameraError("");
   };
 
   return (
     <div className="max-w-lg mx-auto">
       <div className="sticky top-0 z-40 bg-[#0F172A] text-white px-4 py-3 flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="p-1"><ArrowLeft size={20} /></button>
+        <button onClick={() => { stopCamera(); navigate(-1); }} className="p-1"><ArrowLeft size={20} /></button>
         <h1 className="text-sm font-bold">Scan QR Code</h1>
       </div>
 
       {!scanResult && (
         <div className="p-4">
-          {/* Camera placeholder */}
-          <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-square mb-4 flex flex-col items-center justify-center">
-            <div className="absolute inset-0 border-[3px] border-white/20 rounded-xl" />
-            <div className="absolute top-1/4 left-1/4 right-1/4 bottom-1/4">
-              <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-[#003B7A] rounded-tl-lg" />
-              <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-[#003B7A] rounded-tr-lg" />
-              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-[#003B7A] rounded-bl-lg" />
-              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-[#003B7A] rounded-br-lg" />
-            </div>
-            <QrCode size={64} className="text-white/30 mb-4" />
-            <p className="text-white/60 text-sm">Align QR code within frame</p>
-            <Button className="mt-4 bg-[#003B7A] hover:bg-[#002B5A]" onClick={handleScan}>Simulate Scan</Button>
+          {/* Camera view */}
+          <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-[4/3] mb-4">
+            {scanning ? (
+              <>
+                <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover" playsInline muted />
+                <canvas ref={canvasRef} className="hidden" />
+                {/* Scan overlay */}
+                <div className="absolute inset-0 pointer-events-none">
+                  <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48">
+                    <div className="absolute top-0 left-0 w-8 h-8 border-t-4 border-l-4 border-[#003B7A] rounded-tl-lg" />
+                    <div className="absolute top-0 right-0 w-8 h-8 border-t-4 border-r-4 border-[#003B7A] rounded-tr-lg" />
+                    <div className="absolute bottom-0 left-0 w-8 h-8 border-b-4 border-l-4 border-[#003B7A] rounded-bl-lg" />
+                    <div className="absolute bottom-0 right-0 w-8 h-8 border-b-4 border-r-4 border-[#003B7A] rounded-br-lg" />
+                  </div>
+                  <p className="absolute bottom-4 left-0 right-0 text-center text-white/70 text-xs">Align QR code within frame</p>
+                </div>
+                <button onClick={stopCamera} className="absolute top-3 right-3 p-2 bg-black/50 rounded-full text-white">
+                  <CameraOff size={16} />
+                </button>
+              </>
+            ) : (
+              <div className="absolute inset-0 flex flex-col items-center justify-center">
+                <QrCode size={64} className="text-white/30 mb-4" />
+                {cameraError ? (
+                  <>
+                    <p className="text-red-400 text-sm text-center px-8 mb-4">{cameraError}</p>
+                    <Button size="sm" variant="outline" className="text-white border-white/30" onClick={() => setShowManual(true)}>
+                      Enter Manually
+                    </Button>
+                  </>
+                ) : (
+                  <Button className="bg-[#003B7A] hover:bg-[#002B5A]" onClick={startCamera}>
+                    <Camera size={16} className="mr-2" /> Open Camera
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Manual entry */}
           <div className="text-center">
             <button onClick={() => setShowManual(!showManual)} className="text-sm text-[#003B7A] hover:underline">
-              Enter tracking ID manually
+              {showManual ? "Hide" : "Enter tracking ID manually"}
             </button>
             {showManual && (
               <div className="mt-3 flex gap-2">
                 <input value={manualInput} onChange={e => setManualInput(e.target.value)}
-                  placeholder="Enter QR token or tracking ID"
-                  className="flex-1 h-10 px-3 rounded-lg border border-gray-200 text-sm" />
+                  placeholder="Enter tracking ID or QR token"
+                  className="flex-1 h-10 px-3 rounded-lg border border-gray-200 text-sm"
+                  onKeyDown={e => e.key === "Enter" && handleManual()} />
                 <Button size="sm" className="bg-[#003B7A]" onClick={handleManual}>Go</Button>
               </div>
             )}
@@ -72,13 +163,18 @@ export default function QrScanner() {
       {/* Scan Result */}
       {scanResult && (
         <div className="p-4">
-          {isLoading && <p className="text-center py-4 text-gray-400">Validating...</p>}
+          {isLoading && (
+            <div className="text-center py-8">
+              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#003B7A] mx-auto mb-3" />
+              <p className="text-sm text-gray-400">Validating...</p>
+            </div>
+          )}
           {!shipment && !isLoading && (
             <div className="text-center py-8">
               <XCircle size={48} className="mx-auto text-red-400 mb-3" />
               <p className="text-lg font-semibold text-red-600">Invalid QR Code</p>
-              <p className="text-sm text-gray-500 mb-4">This QR code is not recognized</p>
-              <Button variant="outline" onClick={() => { setScanResult(null); setManualInput(""); }}>Scan Again</Button>
+              <p className="text-sm text-gray-500 mb-4">No shipment found for: {scanResult}</p>
+              <Button variant="outline" onClick={reset}>Scan Again</Button>
             </div>
           )}
           {shipment && (
@@ -102,9 +198,7 @@ export default function QrScanner() {
                 <Button className="flex-1 bg-[#003B7A] hover:bg-[#002B5A]" onClick={() => navigate(`/shipments/${shipment.id}`)}>
                   View Details
                 </Button>
-                <Button variant="outline" onClick={() => { setScanResult(null); setManualInput(""); }}>
-                  Scan Again
-                </Button>
+                <Button variant="outline" onClick={reset}>Scan Again</Button>
               </div>
             </div>
           )}

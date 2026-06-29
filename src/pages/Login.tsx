@@ -54,6 +54,10 @@ export default function Login() {
           Don't have an account?{" "}
           <button onClick={() => navigate("/signup")} className="text-[#003B7A] font-medium hover:underline">Sign Up</button>
         </p>
+        <p className="text-center text-sm text-gray-500 mt-2">
+          3PL Partner?{" "}
+          <button onClick={() => navigate("/tpl-login")} className="text-indigo-600 font-medium hover:underline">3PL Portal</button>
+        </p>
       </div>
     </div>
   );
