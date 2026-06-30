@@ -15,10 +15,11 @@ export default function Users() {
   const [statusFilter, setStatusFilter] = useState("");
   const [page] = useState(1);
   const [showAdd, setShowAdd] = useState(false);
-  const [newUser, setNewUser] = useState({ name: "", phone: "", role: "driver", password: "" });
+  const [newUser, setNewUser] = useState({ name: "", phone: "", role: "driver", password: "", branchId: "19" });
 
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.user.list.useQuery({ page, limit: 20, search: search || undefined, status: statusFilter || undefined });
+  const { data: branchesData } = trpc.branch.list.useQuery();
 
   const updateStatusMutation = trpc.user.updateStatus.useMutation({
     onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); },
@@ -27,7 +28,7 @@ export default function Users() {
     onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); },
   });
   const createUserMutation = trpc.user.create.useMutation({
-    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); setShowAdd(false); setNewUser({ name: "", phone: "", role: "driver", password: "" }); },
+    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); setShowAdd(false); setNewUser({ name: "", phone: "", role: "driver", password: "", branchId: "19" }); },
   });
 
   const statusColors: Record<string, string> = {
@@ -117,10 +118,21 @@ export default function Users() {
                   <SelectContent>{KEDI_ROLES.map(r => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
+              <div><Label>Branch</Label>
+                <Select value={newUser.branchId} onValueChange={v => setNewUser({ ...newUser, branchId: v })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    {branchesData?.map((b: any) => (
+                      <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <div><Label>Password</Label><Input type="password" value={newUser.password} onChange={e => setNewUser({ ...newUser, password: e.target.value })} placeholder="Default: kedi1234" /></div>
               <Button className="w-full bg-[#003B7A]" onClick={() => createUserMutation.mutate({
                 name: newUser.name, phone: newUser.phone, role: newUser.role,
                 password: newUser.password || "kedi1234",
+                branchId: Number(newUser.branchId) || 19,
               })} disabled={createUserMutation.isPending}>
                 {createUserMutation.isPending ? "Creating..." : "Create User"}
               </Button>
