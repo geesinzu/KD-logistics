@@ -28,7 +28,6 @@ export const KEDI_ROLES = [
   "logistics_officer",
   "driver",
   "warehouse_supply",
-  "tpl_user",
 ] as const;
 
 export const ROLE_LABELS: Record<KediRole, string> = {
@@ -39,7 +38,6 @@ export const ROLE_LABELS: Record<KediRole, string> = {
   logistics_officer: "Logistics Officer",
   driver: "Driver",
   warehouse_supply: "Warehouse Supply",
-  tpl_user: "3PL User",
 };
 
 export const ROLE_COLORS: Record<KediRole, string> = {
@@ -50,7 +48,6 @@ export const ROLE_COLORS: Record<KediRole, string> = {
   logistics_officer: "bg-indigo-100 text-indigo-700",
   driver: "bg-green-100 text-green-700",
   warehouse_supply: "bg-yellow-100 text-yellow-700",
-  tpl_user: "bg-gray-100 text-gray-700",
 };
 
 // ── SHIPMENT STATUS ──
