@@ -77,6 +77,14 @@ export const tplRouter = createRouter({
     }),
 
   // Admin: List all TPL users
+  deleteUser: adminQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      await db.delete(tplUsers).where(eq(tplUsers.id, input.id));
+      return { success: true };
+    }),
+
   listUsers: adminQuery.query(async () => {
     const db = getDb();
     const users = await db.select().from(tplUsers).orderBy(desc(tplUsers.createdAt));

@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ROLE_LABELS, KEDI_ROLES } from "@contracts/constants";
-import { Search, UserPlus, Truck } from "lucide-react";
+import { Search, UserPlus, Truck, Trash2 } from "lucide-react";
 
 export default function Users() {
   const [search, setSearch] = useState("");
@@ -32,14 +32,17 @@ export default function Users() {
   const updateStatusMutation = trpc.user.updateStatus.useMutation({
     onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); },
   });
-  const updateRoleMutation = trpc.user.updateRole.useMutation({
-    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); },
-  });
   const createUserMutation = trpc.user.create.useMutation({
     onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); setShowAdd(false); setNewUser({ name: "", phone: "", role: "driver", password: "", branchId: "19" }); },
   });
   const create3plUserMutation = trpc.tpl.createUser.useMutation({
     onSuccess: () => { utils.tpl.listUsers.invalidate(); setShowAdd3pl(false); setNew3pl({ name: "", phone: "", password: "", tplId: "" }); },
+  });
+  const deleteUserMutation = trpc.user.delete.useMutation({
+    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); },
+  });
+  const delete3plUserMutation = trpc.tpl.deleteUser.useMutation({
+    onSuccess: () => { utils.tpl.listUsers.invalidate(); },
   });
 
   const statusColors: Record<string, string> = {
@@ -101,19 +104,20 @@ export default function Users() {
                     <Badge variant="outline" className="text-[9px]">{ROLE_LABELS[u.role as keyof typeof ROLE_LABELS] || u.role}</Badge>
                   </div>
                 </div>
-                <div className="flex flex-col gap-1">
+                <div className="flex flex-col gap-1 items-end">
                   {u.status === "pending" && (
                     <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
                       onClick={() => updateStatusMutation.mutate({ id: u.id, status: "active" })}>
                       Activate
                     </Button>
                   )}
-                  <Select value={u.role} onValueChange={(val) => updateRoleMutation.mutate({ id: u.id, role: val })}>
-                    <SelectTrigger className="h-6 text-[10px] w-24"><SelectValue /></SelectTrigger>
-                    <SelectContent>
-                      {KEDI_ROLES.map(r => <SelectItem key={r} value={r} className="text-xs">{ROLE_LABELS[r]}</SelectItem>)}
-                    </SelectContent>
-                  </Select>
+                  <button
+                    onClick={() => { if (confirm(`Delete user "${u.name}"? This cannot be undone.`)) deleteUserMutation.mutate({ id: u.id }); }}
+                    className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                    title="Delete user"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
               </div>
             </CardContent>
@@ -209,6 +213,13 @@ export default function Users() {
                           <p className="font-medium">{u.name}</p>
                           <p className="text-gray-400">{u.phone} | {u.tplName}</p>
                         </div>
+                        <button
+                          onClick={() => { if (confirm(`Delete 3PL staff "${u.name}"? This cannot be undone.`)) delete3plUserMutation.mutate({ id: u.id }); }}
+                          className="p-1 text-gray-400 hover:text-red-500 transition-colors"
+                          title="Delete 3PL staff"
+                        >
+                          <Trash2 size={12} />
+                        </button>
                       </div>
                     ))}
                   </div>
