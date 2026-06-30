@@ -21,6 +21,7 @@ export default function TplPortal() {
   const [receivedQty, setReceivedQty] = useState("");
   const [condition, setCondition] = useState("good");
   const [notes, setNotes] = useState("");
+  const [newDeliveryDate, setNewDeliveryDate] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
 
   const utils = trpc.useUtils();
@@ -38,11 +39,14 @@ export default function TplPortal() {
   const updateMutation = trpc.shipment.tplUpdateLocation.useMutation({
     onSuccess: () => { utils.shipment.listForTpl.invalidate(); closeDialog(); },
   });
+  const updateDeliveryDateMutation = trpc.shipment.tplUpdateDeliveryDate.useMutation({
+    onSuccess: () => { utils.shipment.listForTpl.invalidate(); },
+  });
 
   const closeDialog = () => {
     setSelectedShipment(null);
     setActionType(null);
-    setUpdateType(""); setLocation(""); setDeliveredQty(""); setReceivedQty(""); setCondition("good"); setNotes("");
+    setUpdateType(""); setLocation(""); setDeliveredQty(""); setReceivedQty(""); setCondition("good"); setNotes(""); setNewDeliveryDate("");
   };
 
   const handleConfirm = () => {
@@ -57,6 +61,14 @@ export default function TplPortal() {
 
   const handleUpdate = () => {
     if (!selectedShipment || !updateType || !location) return;
+    // If reporting delay with a new delivery date, update that first
+    if (updateType === "delay_reported" && newDeliveryDate) {
+      updateDeliveryDateMutation.mutate({
+        shipmentId: selectedShipment.id,
+        estimatedDeliveryDate: newDeliveryDate,
+        notes: notes || undefined,
+      });
+    }
     updateMutation.mutate({
       shipmentId: selectedShipment.id,
       location,
@@ -152,6 +164,16 @@ export default function TplPortal() {
                     {s.deliveredQty ? ` | Delivered: ${s.deliveredQty}` : ""}
                     {s.remainingQty ? ` | Remaining: ${s.remainingQty}` : ""}
                   </p>
+                  {/* Row 2b: Estimated Delivery Date */}
+                  {s.estimatedDeliveryDate && (
+                    <p className="text-[11px] mb-1">
+                      <span className="text-gray-400">Est. Delivery:</span>{" "}
+                      <span className={`font-medium ${new Date(s.estimatedDeliveryDate) < new Date() && !doneStatuses.includes(s.status) ? "text-red-600" : "text-green-700"}`}>
+                        {new Date(s.estimatedDeliveryDate).toLocaleDateString("en-NG", { weekday: "short", year: "numeric", month: "short", day: "numeric" })}
+                        {new Date(s.estimatedDeliveryDate) < new Date() && !doneStatuses.includes(s.status) ? " (OVERDUE)" : ""}
+                      </span>
+                    </p>
+                  )}
                   {/* Row 3: Action + Expand */}
                   <div className="flex gap-2">
                     {actionLabel && (
@@ -255,6 +277,20 @@ export default function TplPortal() {
                 <div>
                   <Label>Quantity Delivered Now</Label>
                   <Input type="number" value={deliveredQty} onChange={e => setDeliveredQty(e.target.value)} placeholder={`Of ${selectedShipment.actualItemCount || 0} total`} />
+                </div>
+              )}
+              {updateType === "delay_reported" && (
+                <div>
+                  <Label>New Estimated Delivery Date</Label>
+                  <Input
+                    type="date"
+                    value={newDeliveryDate}
+                    onChange={e => setNewDeliveryDate(e.target.value)}
+                    min={new Date().toISOString().split("T")[0]}
+                  />
+                  <p className="text-[10px] text-gray-400 mt-1">
+                    Current: {selectedShipment.estimatedDeliveryDate ? new Date(selectedShipment.estimatedDeliveryDate).toLocaleDateString("en-NG") : "Not set"}
+                  </p>
                 </div>
               )}
               <div><Label>Notes</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Additional info..." /></div>
