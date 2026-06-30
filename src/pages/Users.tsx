@@ -118,9 +118,13 @@ export default function Users() {
                   <SelectContent>{KEDI_ROLES.map(r => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
-              <div><Label>Branch</Label>
+              <div><Label>Branch *</Label>
                 <Select value={newUser.branchId} onValueChange={v => setNewUser({ ...newUser, branchId: v })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Choose a branch...">
+                      {branchesData?.find((b: any) => String(b.id) === newUser.branchId)?.name || "Choose a branch..."}
+                    </SelectValue>
+                  </SelectTrigger>
                   <SelectContent>
                     {branchesData?.map((b: any) => (
                       <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>
