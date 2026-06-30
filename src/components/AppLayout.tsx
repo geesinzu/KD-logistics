@@ -1,6 +1,6 @@
 import { Outlet, useNavigate, useLocation } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
-import { Home, Package, Users, UserCircle, MessageCircle } from "lucide-react";
+import { Home, Package, Users, UserCircle } from "lucide-react";
 
 export function AppLayout() {
   const navigate = useNavigate();
@@ -14,7 +14,6 @@ export function AppLayout() {
     { path: "/", icon: Home, label: "Home" },
     { path: "/shipments", icon: Package, label: "Shipments" },
     ...(isAdmin ? [{ path: "/users", icon: Users, label: "Users" }] : []),
-    { path: "/chat", icon: MessageCircle, label: "Chat" },
     { path: "/profile", icon: UserCircle, label: "Profile" },
   ];
 
