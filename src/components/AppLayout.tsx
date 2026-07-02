@@ -12,12 +12,11 @@ export function AppLayout() {
   });
 
   const role = user?.role;
-  const isAdmin = role === "super_admin" || role === "admin";
 
   const tabs = [
     { path: "/", icon: Home, label: "Home" },
     { path: "/shipments", icon: Package, label: "Shipments" },
-    ...(isAdmin ? [{ path: "/users", icon: Users, label: "Users" }] : []),
+    ...(role === "super_admin" ? [{ path: "/users", icon: Users, label: "Users" }] : []),
     { path: "/scan", icon: ScanLine, label: "Scan" },
     { path: "/profile", icon: UserCircle, label: "Profile" },
   ];

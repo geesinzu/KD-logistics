@@ -32,6 +32,12 @@ export default function Users() {
   const updateStatusMutation = trpc.user.updateStatus.useMutation({
     onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); },
   });
+  const updateRoleMutation = trpc.user.updateRole.useMutation({
+    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); },
+  });
+  const updateBranchMutation = trpc.user.updateBranch.useMutation({
+    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); },
+  });
   const createUserMutation = trpc.user.create.useMutation({
     onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); setShowAdd(false); setNewUser({ name: "", phone: "", role: "driver", password: "", branchId: "19" }); },
   });
@@ -105,6 +111,23 @@ export default function Users() {
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 items-end">
+                  {/* Role assignment */}
+                  <Select value={u.role} onValueChange={(val) => updateRoleMutation.mutate({ id: u.id, role: val })}>
+                    <SelectTrigger className="h-6 text-[10px] w-28"><SelectValue /></SelectTrigger>
+                    <SelectContent>
+                      {KEDI_ROLES.map(r => <SelectItem key={r} value={r} className="text-xs">{ROLE_LABELS[r]}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                  {/* Branch assignment */}
+                  <Select value={u.branchId ? String(u.branchId) : ""} onValueChange={(val) => updateBranchMutation.mutate({ id: u.id, branchId: val ? Number(val) : null })}>
+                    <SelectTrigger className="h-6 text-[10px] w-28"><SelectValue placeholder="No branch" /></SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="">No branch</SelectItem>
+                      {branchesData?.map((b: any) => (
+                        <SelectItem key={b.id} value={String(b.id)} className="text-xs">{b.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                   {u.status === "pending" && (
                     <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 bg-green-50 text-green-700 border-green-200 hover:bg-green-100"
                       onClick={() => updateStatusMutation.mutate({ id: u.id, status: "active" })}>

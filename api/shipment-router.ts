@@ -515,6 +515,65 @@ export const shipmentRouter = createRouter({
       return { success: true };
     }),
 
+  // ── BRANCH MANAGER: ACKNOWLEDGE DELIVERY ──
+  // Branch Manager confirms receipt at destination branch
+  branchManagerAcknowledge: authedQuery
+    .input(z.object({
+      shipmentId: z.number(),
+      receivedQty: z.number(),
+      condition: z.enum(["good", "partial", "damaged"]),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      // Only branch_manager (or admin/super_admin) can do this
+      if (!["super_admin", "admin", "branch_manager"].includes(ctx.user?.role || "")) {
+        throw new Error("Only Branch Manager or Admin can acknowledge delivery");
+      }
+
+      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+      if (!shipment[0]) throw new Error("Shipment not found");
+
+      // Branch manager can only acknowledge shipments to their branch
+      if (ctx.user?.role === "branch_manager" && ctx.user?.branchId !== shipment[0].destBranchId) {
+        throw new Error("You can only acknowledge shipments for your branch");
+      }
+
+      await db.update(shipments)
+        .set({
+          status: "completed",
+          completedAt: new Date(),
+          deliveredQty: input.receivedQty,
+          remainingQty: (shipment[0].actualItemCount || 0) - input.receivedQty,
+        })
+        .where(eq(shipments.id, input.shipmentId));
+
+      await db.insert(trackingEvents).values({
+        shipmentId: input.shipmentId,
+        eventType: "branch_manager_acknowledged",
+        oldStatus: shipment[0].status,
+        newStatus: "completed",
+        notes: `Branch Manager ${ctx.user!.name} acknowledged delivery: ${input.receivedQty}/${shipment[0].actualItemCount} items. Condition: ${input.condition}. ${input.notes || ""}`,
+        location: "Branch office",
+        createdBy: ctx.user!.id,
+        actorRole: ctx.user!.role,
+      });
+
+      // Notify logistics officer
+      if (shipment[0]?.logisticsOfficerId) {
+        await createNotification(db, {
+          userId: shipment[0].logisticsOfficerId,
+          shipmentId: input.shipmentId,
+          trackingId: shipment[0]?.trackingId || undefined,
+          type: "delivery_acknowledged",
+          title: "Delivery Acknowledged by Branch",
+          message: `Branch Manager confirmed receipt of ${shipment[0]?.trackingId}: ${input.receivedQty} items (${input.condition}).`,
+        });
+      }
+
+      return { success: true };
+    }),
+
   // ── LIST SHIPMENTS ──
   list: authedQuery
     .input(z.object({

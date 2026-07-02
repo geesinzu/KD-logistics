@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, desc } from "drizzle-orm";
 import { thirdPartyLogistics, tplUsers } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, publicQuery, tplQuery, adminQuery } from "./middleware";
+import { createRouter, publicQuery, tplQuery, superAdminQuery } from "./middleware";
 import bcrypt from "bcryptjs";
 import { createTplToken } from "./lib/auth";
 
@@ -54,7 +54,7 @@ export const tplRouter = createRouter({
     }),
 
   // Admin: Create TPL user account (for 3PL portal login)
-  createUser: adminQuery
+  createUser: superAdminQuery
     .input(z.object({
       name: z.string().min(2),
       phone: z.string().min(10),
@@ -77,7 +77,7 @@ export const tplRouter = createRouter({
     }),
 
   // Admin: List all TPL users
-  deleteUser: adminQuery
+  deleteUser: superAdminQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -85,7 +85,7 @@ export const tplRouter = createRouter({
       return { success: true };
     }),
 
-  listUsers: adminQuery.query(async () => {
+  listUsers: superAdminQuery.query(async () => {
     const db = getDb();
     const users = await db.select().from(tplUsers).orderBy(desc(tplUsers.createdAt));
     const tpls = await db.select().from(thirdPartyLogistics);

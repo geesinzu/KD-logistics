@@ -3,11 +3,11 @@ import bcrypt from "bcryptjs";
 import { eq, like, desc, sql, and, or } from "drizzle-orm";
 import { users } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, adminQuery, superAdminQuery, authedQuery } from "./middleware";
+import { createRouter, superAdminQuery, authedQuery } from "./middleware";
 import type { KediRole } from "@contracts/constants";
 
 export const userRouter = createRouter({
-  list: authedQuery
+  list: superAdminQuery
     .input(
       z.object({
         page: z.number().default(1),
@@ -56,7 +56,7 @@ export const userRouter = createRouter({
       return { users: results, total: countResult[0]?.count ?? 0 };
     }),
 
-  getById: adminQuery
+  getById: superAdminQuery
     .input(z.object({ id: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
@@ -82,7 +82,7 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
-  updateStatus: adminQuery
+  updateStatus: superAdminQuery
     .input(z.object({ id: z.number(), status: z.enum(["pending", "active", "suspended"]) }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -90,7 +90,7 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
-  updateBranch: adminQuery
+  updateBranch: superAdminQuery
     .input(z.object({ id: z.number(), branchId: z.number().nullable() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -98,7 +98,7 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
-  delete: adminQuery
+  delete: superAdminQuery
     .input(z.object({ id: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -106,7 +106,7 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
-  create: adminQuery
+  create: superAdminQuery
     .input(z.object({
       name: z.string().min(2),
       phone: z.string().min(10),
@@ -132,7 +132,7 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
-  stats: adminQuery.query(async () => {
+  stats: superAdminQuery.query(async () => {
     const db = getDb();
     const allUsers = await db.select().from(users);
     return {
