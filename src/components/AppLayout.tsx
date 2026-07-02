@@ -1,11 +1,15 @@
 import { Outlet, useNavigate, useLocation } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
-import { Home, Package, Users, ScanLine, UserCircle } from "lucide-react";
+import { trpc } from "@/providers/trpc";
+import { Home, Package, Users, ScanLine, UserCircle, Bell } from "lucide-react";
 
 export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const { data: unreadCount } = trpc.notification.unreadCount.useQuery(undefined, {
+    refetchInterval: 30000, // Poll every 30 seconds
+  });
 
   const role = user?.role;
   const isAdmin = role === "super_admin" || role === "admin";
@@ -20,6 +24,25 @@ export function AppLayout() {
 
   return (
     <div className="flex flex-col h-screen bg-[#F8FAFC]">
+      {/* Top header with notification bell */}
+      <header className="sticky top-0 z-40 bg-[#0F172A] text-white px-4 py-2.5 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <img src="/kedi-logo.png" alt="KEDI" className="h-7" />
+          <span className="text-sm font-bold">KEDI Logistics</span>
+        </div>
+        <button
+          onClick={() => navigate("/notifications")}
+          className="relative p-2 rounded-full hover:bg-white/10 transition-colors"
+        >
+          <Bell size={20} />
+          {unreadCount ? (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center px-1">
+              {unreadCount > 99 ? "99+" : unreadCount}
+            </span>
+          ) : null}
+        </button>
+      </header>
+
       <main className="flex-1 overflow-y-auto pb-20">
         <Outlet />
       </main>

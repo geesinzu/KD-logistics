@@ -212,3 +212,19 @@ export const activityLog = mysqlTable("activity_log", {
   details: json("details"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// ── NOTIFICATIONS ──
+export const notifications = mysqlTable("notifications", {
+  id: serial("id").primaryKey(),
+  userId: bigint("user_id", { mode: "number", unsigned: true }), // KEDI user ID (null if for TPL)
+  tplUserId: bigint("tpl_user_id", { mode: "number", unsigned: true }), // TPL user ID (null if for KEDI)
+  shipmentId: bigint("shipment_id", { mode: "number", unsigned: true }),
+  trackingId: varchar("tracking_id", { length: 20 }),
+  type: varchar("type", { length: 30 }).notNull(), // e.g., "shipment_created", "driver_assigned", "tpl_confirmed"
+  title: varchar("title", { length: 100 }).notNull(),
+  message: text("message").notNull(),
+  read: int("read").default(0).notNull(), // 0 = unread, 1 = read
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type Notification = typeof notifications.$inferSelect;
