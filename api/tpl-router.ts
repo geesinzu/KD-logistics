@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, desc } from "drizzle-orm";
 import { thirdPartyLogistics, tplUsers } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, publicQuery, tplQuery } from "./middleware";
+import { createRouter, publicQuery, tplQuery, adminQuery } from "./middleware";
 import bcrypt from "bcryptjs";
 import { createTplToken } from "./lib/auth";
 
@@ -69,4 +69,47 @@ export const tplRouter = createRouter({
       role: user[0]?.role,
     };
   }),
+
+  // Admin: Create TPL user (3PL staff login)
+  createUser: adminQuery
+    .input(z.object({
+      name: z.string().min(2),
+      phone: z.string().min(10),
+      password: z.string().min(4),
+      tplId: z.number(),
+    }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      const passwordHash = await bcrypt.hash(input.password, 10);
+      await db.insert(tplUsers).values({
+        name: input.name,
+        phone: input.phone,
+        passwordHash,
+        tplId: input.tplId,
+        role: "tpl_staff",
+        status: "active",
+      });
+      return { success: true };
+    }),
+
+  // Admin: List all TPL users
+  listUsers: adminQuery.query(async () => {
+    const db = getDb();
+    const users = await db.select().from(tplUsers).orderBy(desc(tplUsers.createdAt));
+    const tpls = await db.select().from(thirdPartyLogistics);
+    return users.map(u => ({
+      ...u,
+      tplName: tpls.find(t => t.id === u.tplId)?.name || "Unknown",
+      passwordHash: undefined,
+    }));
+  }),
+
+  // Admin: Delete TPL user
+  deleteUser: adminQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      await db.delete(tplUsers).where(eq(tplUsers.id, input.id));
+      return { success: true };
+    }),
 });
