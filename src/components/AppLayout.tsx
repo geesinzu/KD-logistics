@@ -8,12 +8,12 @@ export function AppLayout() {
   const { user } = useAuth();
 
   const role = user?.role;
-  const isAdmin = role === "super_admin" || role === "admin";
+  const isSuperAdmin = role === "super_admin";
 
   const tabs = [
     { path: "/", icon: Home, label: "Home" },
     { path: "/shipments", icon: Package, label: "Shipments" },
-    ...(isAdmin ? [{ path: "/users", icon: Users, label: "Users" }] : []),
+    ...(isSuperAdmin ? [{ path: "/users", icon: Users, label: "Users" }] : []),
     { path: "/scan", icon: ScanLine, label: "Scan" },
     { path: "/profile", icon: UserCircle, label: "Profile" },
   ];
