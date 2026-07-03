@@ -14,7 +14,6 @@ import DriverDeliveries from "./pages/DriverDeliveries";
 import QrScanner from "./pages/QrScanner";
 import Users from "./pages/Users";
 import Profile from "./pages/Profile";
-import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 import { AppLayout } from "./components/AppLayout";
 
@@ -51,9 +50,8 @@ export default function App() {
         <Route path="/assign-3pl/:id" element={<ProtectedRoute requiredRoles={["super_admin","admin","logistics_officer"]}><Assign3pl /></ProtectedRoute>} />
         <Route path="/driver/deliveries" element={<ProtectedRoute requiredRoles={["super_admin","admin","driver"]}><DriverDeliveries /></ProtectedRoute>} />
         <Route path="/scan" element={<ProtectedRoute><QrScanner /></ProtectedRoute>} />
-        <Route path="/users" element={<ProtectedRoute requiredRoles={["super_admin"]}><Users /></ProtectedRoute>} />
+        <Route path="/users" element={<ProtectedRoute requiredRoles={["super_admin","admin"]}><Users /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-        <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
       </Route>
     </Routes>
   );

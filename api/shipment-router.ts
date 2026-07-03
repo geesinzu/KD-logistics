@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { eq, desc, and, sql, inArray } from "drizzle-orm";
-import { shipments, trackingEvents, users, branches, thirdPartyLogistics, tplUsers, notifications } from "@db/schema";
+import { shipments, trackingEvents, users, branches, thirdPartyLogistics } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { createRouter, authedQuery, adminQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
 import { BRANCH_TRACKING_CODES } from "@contracts/constants";
@@ -12,31 +12,6 @@ function generateTrackingId(branchName: string): string {
   const mm = String(now.getMonth() + 1).padStart(2, "0");
   const seq = String(Math.floor(Math.random() * 999) + 1).padStart(3, "0");
   return `KEDI-${code}${yy}${mm}${seq}`;
-}
-
-// ── Notification Helper ──
-async function createNotification(db: any, opts: {
-  userId?: number;
-  tplUserId?: number;
-  shipmentId?: number;
-  trackingId?: string;
-  type: string;
-  title: string;
-  message: string;
-}) {
-  try {
-    await db.insert(notifications).values({
-      userId: opts.userId,
-      tplUserId: opts.tplUserId,
-      shipmentId: opts.shipmentId,
-      trackingId: opts.trackingId,
-      type: opts.type,
-      title: opts.title,
-      message: opts.message,
-    });
-  } catch {
-    // Silently fail — notifications are non-critical
-  }
 }
 
 function generateQrToken(): string {
@@ -210,31 +185,6 @@ export const shipmentRouter = createRouter({
         });
       }
 
-      // Notify relevant parties
-      const shipment = await db.select({ trackingId: shipments.trackingId }).from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (input.tplPickupType === "kedi_driver_drop" && input.assignedDriverId) {
-        await createNotification(db, {
-          userId: input.assignedDriverId,
-          shipmentId: input.shipmentId,
-          trackingId: shipment[0]?.trackingId || undefined,
-          type: "driver_assigned",
-          title: "New Pickup Assignment",
-          message: `You have been assigned to pickup ${shipment[0]?.trackingId} and drop at ${tplName}.`,
-        });
-      } else {
-        const tplUsersResult = await db.select().from(tplUsers).where(eq(tplUsers.tplId, input.tplId));
-        for (const tu of tplUsersResult) {
-          await createNotification(db, {
-            tplUserId: tu.id,
-            shipmentId: input.shipmentId,
-            trackingId: shipment[0]?.trackingId || undefined,
-            type: "tpl_pickup_request",
-            title: "Pickup Request",
-            message: `Please pickup ${shipment[0]?.trackingId} from Lagos HQ warehouse.`,
-          });
-        }
-      }
-
       return { success: true, tplName };
     }),
 
@@ -257,18 +207,6 @@ export const shipmentRouter = createRouter({
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
-      // Notify logistics officer
-      const shipment = await db.select({ trackingId: shipments.trackingId, logisticsOfficerId: shipments.logisticsOfficerId }).from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (shipment[0]?.logisticsOfficerId) {
-        await createNotification(db, {
-          userId: shipment[0].logisticsOfficerId,
-          shipmentId: input.shipmentId,
-          trackingId: shipment[0]?.trackingId || undefined,
-          type: "driver_pickup",
-          title: "Driver Picked Up",
-          message: `Driver ${ctx.user.name} picked up ${shipment[0]?.trackingId} from warehouse.`,
-        });
-      }
       return { success: true };
     }),
 
@@ -296,21 +234,6 @@ export const shipmentRouter = createRouter({
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
-
-      // Notify 3PL staff
-      if (shipment[0]?.tplId) {
-        const tplUserList = await db.select().from(tplUsers).where(eq(tplUsers.tplId, shipment[0].tplId));
-        for (const tu of tplUserList) {
-          await createNotification(db, {
-            tplUserId: tu.id,
-            shipmentId: input.shipmentId,
-            trackingId: shipment[0]?.trackingId || undefined,
-            type: "shipment_at_3pl",
-            title: "Shipment Arrived",
-            message: `Driver ${ctx.user.name} dropped ${shipment[0]?.trackingId} at your office. Please confirm receipt.`,
-          });
-        }
-      }
 
       return { success: true, message: `${tplName} has been notified to confirm receipt.` };
     }),
@@ -387,18 +310,6 @@ export const shipmentRouter = createRouter({
         actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
       });
 
-      // Notify logistics officer
-      if (shipment[0]?.logisticsOfficerId) {
-        await createNotification(db, {
-          userId: shipment[0].logisticsOfficerId,
-          shipmentId: input.shipmentId,
-          trackingId: shipment[0]?.trackingId || undefined,
-          type: "tpl_confirmed",
-          title: "3PL Confirmed Receipt",
-          message: `3PL confirmed receipt of ${shipment[0]?.trackingId}: ${input.receivedQty}/${totalQty} items. ${conditionText}.`,
-        });
-      }
-
       return { success: true, totalQty, receivedQty: input.receivedQty };
     }),
 
@@ -461,49 +372,7 @@ export const shipmentRouter = createRouter({
         actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
       });
 
-      // Notify on full delivery
-      if (input.updateType === "full_delivery" && shipment[0]?.logisticsOfficerId) {
-        await createNotification(db, {
-          userId: shipment[0].logisticsOfficerId,
-          shipmentId: input.shipmentId,
-          trackingId: shipment[0]?.trackingId || undefined,
-          type: "delivery_complete",
-          title: "Delivery Completed",
-          message: `All items for ${shipment[0]?.trackingId} have been delivered to ${shipment[0]?.receiverName || "the destination branch"} at ${input.location}.`,
-        });
-      }
-
       return { success: true, newStatus };
-    }),
-
-  // ── TPL: UPDATE ESTIMATED DELIVERY DATE ──
-  tplUpdateDeliveryDate: authedQuery
-    .input(z.object({
-      shipmentId: z.number(),
-      estimatedDeliveryDate: z.string(),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const actorId = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
-      const actorRole = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
-
-      await db.update(shipments)
-        .set({ estimatedDeliveryDate: new Date(input.estimatedDeliveryDate) })
-        .where(eq(shipments.id, input.shipmentId));
-
-      await db.insert(trackingEvents).values({
-        shipmentId: input.shipmentId,
-        eventType: "note_added",
-        oldStatus: null,
-        newStatus: null,
-        notes: `Estimated delivery date updated to ${new Date(input.estimatedDeliveryDate).toLocaleDateString("en-NG")}. ${input.notes || ""}`,
-        createdBy: actorId,
-        actorRole,
-        actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
-      });
-
-      return { success: true };
     }),
 
   // ── COMPLETE SHIPMENT (Step 9) ──
@@ -512,65 +381,6 @@ export const shipmentRouter = createRouter({
     .mutation(async ({ input }) => {
       const db = getDb();
       await db.update(shipments).set({ status: "completed", completedAt: new Date() }).where(eq(shipments.id, input.shipmentId));
-      return { success: true };
-    }),
-
-  // ── BRANCH MANAGER: ACKNOWLEDGE DELIVERY ──
-  // Branch Manager confirms receipt at destination branch
-  branchManagerAcknowledge: authedQuery
-    .input(z.object({
-      shipmentId: z.number(),
-      receivedQty: z.number(),
-      condition: z.enum(["good", "partial", "damaged"]),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      // Only branch_manager (or admin/super_admin) can do this
-      if (!["super_admin", "admin", "branch_manager"].includes(ctx.user?.role || "")) {
-        throw new Error("Only Branch Manager or Admin can acknowledge delivery");
-      }
-
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (!shipment[0]) throw new Error("Shipment not found");
-
-      // Branch manager can only acknowledge shipments to their branch
-      if (ctx.user?.role === "branch_manager" && ctx.user?.branchId !== shipment[0].destBranchId) {
-        throw new Error("You can only acknowledge shipments for your branch");
-      }
-
-      await db.update(shipments)
-        .set({
-          status: "completed",
-          completedAt: new Date(),
-          deliveredQty: input.receivedQty,
-          remainingQty: (shipment[0].actualItemCount || 0) - input.receivedQty,
-        })
-        .where(eq(shipments.id, input.shipmentId));
-
-      await db.insert(trackingEvents).values({
-        shipmentId: input.shipmentId,
-        eventType: "branch_manager_acknowledged",
-        oldStatus: shipment[0].status,
-        newStatus: "completed",
-        notes: `Branch Manager ${ctx.user!.name} acknowledged delivery: ${input.receivedQty}/${shipment[0].actualItemCount} items. Condition: ${input.condition}. ${input.notes || ""}`,
-        location: "Branch office",
-        createdBy: ctx.user!.id,
-        actorRole: ctx.user!.role,
-      });
-
-      // Notify logistics officer
-      if (shipment[0]?.logisticsOfficerId) {
-        await createNotification(db, {
-          userId: shipment[0].logisticsOfficerId,
-          shipmentId: input.shipmentId,
-          trackingId: shipment[0]?.trackingId || undefined,
-          type: "delivery_acknowledged",
-          title: "Delivery Acknowledged by Branch",
-          message: `Branch Manager confirmed receipt of ${shipment[0]?.trackingId}: ${input.receivedQty} items (${input.condition}).`,
-        });
-      }
-
       return { success: true };
     }),
 
@@ -595,10 +405,6 @@ export const shipmentRouter = createRouter({
 
       if (ctx.user?.role === "driver") {
         conditions.push(eq(shipments.assignedDriverId, ctx.user.id));
-      }
-      // Branch managers only see shipments to their branch
-      if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
-        conditions.push(eq(shipments.destBranchId, ctx.user.branchId));
       }
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;

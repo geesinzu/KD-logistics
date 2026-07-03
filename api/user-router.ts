@@ -3,8 +3,7 @@ import bcrypt from "bcryptjs";
 import { eq, like, desc, sql, and, or } from "drizzle-orm";
 import { users } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, authedQuery } from "./middleware";
-import { TRPCError } from "@trpc/server";
+import { createRouter, adminQuery, superAdminQuery, authedQuery } from "./middleware";
 import type { KediRole } from "@contracts/constants";
 
 export const userRouter = createRouter({
@@ -18,11 +17,7 @@ export const userRouter = createRouter({
         search: z.string().optional(),
       }).optional()
     )
-    .query(async ({ input, ctx }) => {
-      // Only Super Admin can list all users
-      if (ctx.user?.role !== "super_admin") {
-        return { users: [] as any[], total: 0 };
-      }
+    .query(async ({ input }) => {
       const db = getDb();
       const page = input?.page ?? 1;
       const limit = input?.limit ?? 20;
@@ -61,10 +56,9 @@ export const userRouter = createRouter({
       return { users: results, total: countResult[0]?.count ?? 0 };
     }),
 
-  getById: authedQuery
+  getById: adminQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input, ctx }) => {
-      if (ctx.user?.role !== "super_admin") throw new TRPCError({ code: "FORBIDDEN", message: "Super Admin only" });
+    .query(async ({ input }) => {
       const db = getDb();
       const results = await db.select({
         id: users.id,
@@ -80,7 +74,7 @@ export const userRouter = createRouter({
       return results[0] ?? null;
     }),
 
-  updateRole: authedQuery
+  updateRole: superAdminQuery
     .input(z.object({ id: z.number(), role: z.string() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -88,7 +82,7 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
-  updateStatus: authedQuery
+  updateStatus: adminQuery
     .input(z.object({ id: z.number(), status: z.enum(["pending", "active", "suspended"]) }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -96,7 +90,7 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
-  updateBranch: authedQuery
+  updateBranch: adminQuery
     .input(z.object({ id: z.number(), branchId: z.number().nullable() }))
     .mutation(async ({ input }) => {
       const db = getDb();
@@ -104,15 +98,7 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
-  delete: authedQuery
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = getDb();
-      await db.delete(users).where(eq(users.id, input.id));
-      return { success: true };
-    }),
-
-  create: authedQuery
+  create: adminQuery
     .input(z.object({
       name: z.string().min(2),
       phone: z.string().min(10),
@@ -121,7 +107,6 @@ export const userRouter = createRouter({
       password: z.string().min(6).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      if (ctx.user?.role !== "super_admin") throw new TRPCError({ code: "FORBIDDEN", message: "Super Admin only" });
       const db = getDb();
       const existing = await db.select().from(users).where(eq(users.phone, input.phone)).limit(1);
       if (existing.length > 0) throw new Error("Phone number already exists");
@@ -134,13 +119,12 @@ export const userRouter = createRouter({
         role: input.role as KediRole,
         status: "active",
         branchId: input.branchId,
-        createdBy: ctx.user!.id,
+        createdBy: ctx.user.id,
       });
       return { success: true };
     }),
 
-  stats: authedQuery.query(async ({ ctx }) => {
-      if (ctx.user?.role !== "super_admin") return { total: 0, active: 0, pending: 0, suspended: 0, byRole: {} };
+  stats: adminQuery.query(async () => {
     const db = getDb();
     const allUsers = await db.select().from(users);
     return {

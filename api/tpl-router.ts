@@ -2,7 +2,7 @@ import { z } from "zod";
 import { eq, desc } from "drizzle-orm";
 import { thirdPartyLogistics, tplUsers } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, publicQuery, tplQuery, authedQuery } from "./middleware";
+import { createRouter, publicQuery, tplQuery } from "./middleware";
 import bcrypt from "bcryptjs";
 import { createTplToken } from "./lib/auth";
 
@@ -52,50 +52,6 @@ export const tplRouter = createRouter({
       const token = await createTplToken(user.id);
       return { token, user: { id: user.id, name: user.name, role: user.role, tplId: user.tplId } };
     }),
-
-  // Admin: Create TPL user account (for 3PL portal login)
-  createUser: authedQuery
-    .input(z.object({
-      name: z.string().min(2),
-      phone: z.string().min(10),
-      password: z.string().min(4),
-      tplId: z.number(),
-      role: z.string().default("tpl_staff"),
-    }))
-    .mutation(async ({ input }) => {
-      const db = getDb();
-      const passwordHash = await bcrypt.hash(input.password, 10);
-      await db.insert(tplUsers).values({
-        name: input.name,
-        phone: input.phone,
-        passwordHash,
-        tplId: input.tplId,
-        role: input.role as any,
-        status: "active",
-      });
-      return { success: true };
-    }),
-
-  // Admin: List all TPL users
-  deleteUser: authedQuery
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = getDb();
-      await db.delete(tplUsers).where(eq(tplUsers.id, input.id));
-      return { success: true };
-    }),
-
-  listUsers: authedQuery.query(async ({ ctx }) => {
-      if (ctx.user?.role !== "super_admin") return [];
-    const db = getDb();
-    const users = await db.select().from(tplUsers).orderBy(desc(tplUsers.createdAt));
-    const tpls = await db.select().from(thirdPartyLogistics);
-    return users.map(u => ({
-      ...u,
-      tplName: tpls.find(t => t.id === u.tplId)?.name || "Unknown",
-      passwordHash: undefined,
-    }));
-  }),
 
   // TPL me - current user info
   me: tplQuery.query(async ({ ctx }) => {

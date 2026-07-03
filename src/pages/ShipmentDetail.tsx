@@ -14,17 +14,10 @@ export default function ShipmentDetail() {
   const role = user?.role;
 
   const { data: shipment, isLoading } = trpc.shipment.getById.useQuery({ id: Number(id) });
-  const utils = trpc.useUtils();
-  const acknowledgeMutation = trpc.shipment.branchManagerAcknowledge.useMutation({
-    onSuccess: () => { utils.shipment.getById.invalidate({ id: Number(id) }); alert("Delivery acknowledged!"); },
-    onError: (err: any) => alert(err.message),
-  });
 
   const canWarehouse = role && ["super_admin", "admin", "warehouse_supply"].includes(role);
   const canLogistics = role && ["super_admin", "admin", "logistics_officer"].includes(role);
   const isDriverAssigned = shipment?.assignedDriverId === user?.id;
-  const isBranchManager = role === "branch_manager";
-  const canAcknowledge = isBranchManager && shipment?.status === "delivered" && shipment?.destBranchId === user?.branchId;
 
   if (isLoading) return <div className="p-4 text-center">Loading...</div>;
   if (!shipment) return <div className="p-4 text-center">Shipment not found</div>;
@@ -126,16 +119,6 @@ export default function ShipmentDetail() {
           {shipment.status === "picked_up" && isDriverAssigned && (
             <Button className="w-full bg-[#003B7A] hover:bg-[#002B5A] h-12" onClick={() => navigate(`/scan?action=dropoff&shipmentId=${shipment.id}`)}>
               <MapPin size={16} className="mr-2" /> Scan at 3PL Drop-off
-            </Button>
-          )}
-          {canAcknowledge && (
-            <Button className="w-full bg-purple-600 hover:bg-purple-700 h-12" disabled={acknowledgeMutation.isPending}
-              onClick={() => acknowledgeMutation.mutate({
-                shipmentId: shipment.id,
-                receivedQty: shipment.actualItemCount || 0,
-                condition: "good",
-              })}>
-              <User size={16} className="mr-2" /> {acknowledgeMutation.isPending ? "Acknowledging..." : "Acknowledge Delivery"}
             </Button>
           )}
           {shipment.qrCodeToken && (
