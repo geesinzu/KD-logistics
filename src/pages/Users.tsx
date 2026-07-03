@@ -98,7 +98,7 @@ export default function Users() {
             <CardContent className="p-3">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 bg-[#003B7A] rounded-full flex items-center justify-center text-white text-sm font-bold flex-shrink-0">
-                  {u.name.split(" ").map(n => n[0]).join("").toUpperCase().slice(0, 2)}
+                  {u.name.split(" ").map((n: string) => n[0]).join("").toUpperCase().slice(0, 2)}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2">
