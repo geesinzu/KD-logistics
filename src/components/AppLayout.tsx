@@ -1,6 +1,7 @@
 import { Outlet, useNavigate, useLocation } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { Home, Package, Users, ScanLine, UserCircle } from "lucide-react";
+import { Toaster } from "@/components/ui/sonner";
 
 export function AppLayout() {
   const navigate = useNavigate();
@@ -20,6 +21,7 @@ export function AppLayout() {
 
   return (
     <div className="flex flex-col h-screen bg-[#F8FAFC]">
+      <Toaster position="top-center" richColors />
       <main className="flex-1 overflow-y-auto pb-20">
         <Outlet />
       </main>

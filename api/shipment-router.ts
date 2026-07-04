@@ -4,6 +4,7 @@ import { shipments, trackingEvents, users, branches, thirdPartyLogistics } from 
 import { getDb } from "./queries/connection";
 import { createRouter, authedQuery, adminQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
 import { BRANCH_TRACKING_CODES } from "@contracts/constants";
+import { notifyShipmentCreated, notifyShipmentCompleted } from "./lib/push";
 
 function generateTrackingId(branchName: string): string {
   const code = BRANCH_TRACKING_CODES[branchName] || "XX";
@@ -62,6 +63,10 @@ export const shipmentRouter = createRouter({
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
+      // Push notification to destination branch managers
+      const branch = await db.select().from(branches).where(eq(branches.id, input.destBranchId)).limit(1);
+      const trackingId = branch[0] ? generateTrackingId(branch[0].name) : "pending";
+      void notifyShipmentCreated(shipmentId, input.destBranchId, trackingId).catch(() => {});
       return { success: true, shipmentId };
     }),
 
@@ -410,7 +415,12 @@ export const shipmentRouter = createRouter({
     .input(z.object({ shipmentId: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
+      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
       await db.update(shipments).set({ status: "completed", completedAt: new Date() }).where(eq(shipments.id, input.shipmentId));
+      // Push notification to destination branch managers
+      if (shipment[0]) {
+        void notifyShipmentCompleted(input.shipmentId, shipment[0].destBranchId, shipment[0].trackingId || "N/A").catch(() => {});
+      }
       return { success: true };
     }),
 

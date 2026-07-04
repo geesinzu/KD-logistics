@@ -202,6 +202,20 @@ export const tplUsers = mysqlTable("tpl_users", {
 
 export type TplUser = typeof tplUsers.$inferSelect;
 
+// ── PUSH SUBSCRIPTIONS ──
+export const pushSubscriptions = mysqlTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: bigint("user_id", { mode: "number", unsigned: true }),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth_key").notNull(),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),
+});
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
+
 // ── ACTIVITY LOG ──
 export const activityLog = mysqlTable("activity_log", {
   id: serial("id").primaryKey(),
