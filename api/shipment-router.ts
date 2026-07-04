@@ -2,9 +2,8 @@ import { z } from "zod";
 import { eq, desc, and, sql, inArray } from "drizzle-orm";
 import { shipments, trackingEvents, users, branches, thirdPartyLogistics } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, authedQuery, adminQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery, branchManagerQuery } from "./middleware";
-import { BRANCH_TRACKING_CODES, getHubForBranch } from "@contracts/constants";
-import { notifyDeliveredToHub, notifyOnwardTransfer, notifyShipmentCreated, notifyCompleted } from "./lib/push";
+import { createRouter, authedQuery, adminQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
+import { BRANCH_TRACKING_CODES } from "@contracts/constants";
 
 function generateTrackingId(branchName: string): string {
   const code = BRANCH_TRACKING_CODES[branchName] || "XX";
@@ -63,10 +62,6 @@ export const shipmentRouter = createRouter({
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
-      // Notify destination branch manager
-      const branch = await db.select().from(branches).where(eq(branches.id, input.destBranchId)).limit(1);
-      const trackingId = "pending";
-      void notifyShipmentCreated(shipmentId, input.destBranchId, trackingId).catch(() => {});
       return { success: true, shipmentId };
     }),
 
@@ -137,27 +132,8 @@ export const shipmentRouter = createRouter({
       const db = getDb();
       const tplName = await getTplName(db, input.tplId);
 
-      // Check if this destination requires a hub
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (!shipment[0]) throw new Error("Shipment not found");
-
-      const destBranch = await db.select().from(branches).where(eq(branches.id, shipment[0].destBranchId)).limit(1);
-      const destBranchName = destBranch[0]?.name || "";
-      const hubName = getHubForBranch(destBranchName);
-
-      let hubBranchId: number | undefined;
-      let hubNotes = "";
-
-      if (hubName) {
-        // Find the hub branch ID
-        const hubBranch = await db.select().from(branches).where(eq(branches.name, hubName)).limit(1);
-        if (hubBranch[0]) {
-          hubBranchId = hubBranch[0].id;
-          hubNotes = ` ROUTED VIA ${hubName} HUB → ${destBranchName}. ${hubName} BM will handle onward transfer.`;
-        }
-      }
-
       if (input.tplPickupType === "kedi_driver_drop") {
+        // KEDI DRIVER DROPS: assign driver, driver gets notification
         const driverName = input.assignedDriverId ? await getDriverName(db, input.assignedDriverId) : "Unassigned";
 
         await db.update(shipments)
@@ -170,21 +146,21 @@ export const shipmentRouter = createRouter({
             assignedAt: new Date(),
             estimatedDeliveryDate: input.estimatedDeliveryDate ? new Date(input.estimatedDeliveryDate) : null,
             specialInstructions: input.specialInstructions,
-            intermediateHubId: hubBranchId,
-            finalDestBranchId: hubBranchId ? shipment[0].destBranchId : undefined,
           })
           .where(eq(shipments.id, input.shipmentId));
 
+        // Tracking: driver assignment notification
         await db.insert(trackingEvents).values({
           shipmentId: input.shipmentId,
           eventType: "assigned_to_3pl",
           oldStatus: "labeled",
           newStatus: "waiting_driver_pickup",
-          notes: `Assigned to driver: ${driverName} -> drops at ${tplName}.${hubNotes} ${input.specialInstructions || ""}`,
+          notes: `Assigned to driver: ${driverName} -> drops at ${tplName}. ${input.specialInstructions || ""}`,
           createdBy: ctx.user!.id,
           actorRole: ctx.user!.role,
         });
       } else {
+        // 3PL PICKS UP DIRECTLY: notify 3PL to come pickup
         await db.update(shipments)
           .set({
             tplId: input.tplId,
@@ -194,29 +170,22 @@ export const shipmentRouter = createRouter({
             assignedAt: new Date(),
             estimatedDeliveryDate: input.estimatedDeliveryDate ? new Date(input.estimatedDeliveryDate) : null,
             specialInstructions: input.specialInstructions,
-            intermediateHubId: hubBranchId,
-            finalDestBranchId: hubBranchId ? shipment[0].destBranchId : undefined,
           })
           .where(eq(shipments.id, input.shipmentId));
 
+        // Tracking: 3PL notification to pickup
         await db.insert(trackingEvents).values({
           shipmentId: input.shipmentId,
           eventType: "assigned_to_3pl",
           oldStatus: "labeled",
           newStatus: "waiting_3pl_pickup",
-          notes: `${tplName} notified: Pick up from Lagos HQ warehouse.${hubNotes} ${input.specialInstructions || ""}`,
+          notes: `${tplName} notified: Pick up from Lagos HQ warehouse. ${input.specialInstructions || ""}`,
           createdBy: ctx.user.id,
           actorRole: ctx.user.role,
         });
       }
 
-      return {
-        success: true,
-        tplName,
-        hubRouted: !!hubBranchId,
-        hubName: hubName || null,
-        finalDestination: destBranchName,
-      };
+      return { success: true, tplName };
     }),
 
   // ── DRIVER: CONFIRM PICKUP (Step 5) ──
@@ -406,302 +375,43 @@ export const shipmentRouter = createRouter({
       return { success: true, newStatus };
     }),
 
+  // ── TPL: UPDATE ESTIMATED DELIVERY DATE ──
+  tplUpdateDeliveryDate: authedQuery
+    .input(z.object({
+      shipmentId: z.number(),
+      estimatedDeliveryDate: z.string(),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const actorId = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
+      const actorRole = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
+
+      await db.update(shipments)
+        .set({ estimatedDeliveryDate: new Date(input.estimatedDeliveryDate) })
+        .where(eq(shipments.id, input.shipmentId));
+
+      await db.insert(trackingEvents).values({
+        shipmentId: input.shipmentId,
+        eventType: "note_added",
+        oldStatus: null,
+        newStatus: null,
+        notes: `Estimated delivery date updated to ${new Date(input.estimatedDeliveryDate).toLocaleDateString("en-NG")}. ${input.notes || ""}`,
+        createdBy: actorId,
+        actorRole,
+        actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+      });
+
+      return { success: true };
+    }),
+
   // ── COMPLETE SHIPMENT (Step 9) ──
   complete: authedQuery
     .input(z.object({ shipmentId: z.number() }))
     .mutation(async ({ input }) => {
       const db = getDb();
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
       await db.update(shipments).set({ status: "completed", completedAt: new Date() }).where(eq(shipments.id, input.shipmentId));
-
-      // Notify destination branch manager
-      const destBranchId = shipment[0]?.finalDestBranchId || shipment[0]?.destBranchId;
-      if (destBranchId) {
-        void notifyCompleted(input.shipmentId, destBranchId, shipment[0]?.trackingId || "N/A").catch(() => {});
-      }
-
       return { success: true };
-    }),
-
-  // ── BRANCH MANAGER: ACKNOWLEDGE DELIVERY ──
-  // When 3PL delivers to branch, BM confirms receipt and shipment is completed
-  branchManagerAcknowledge: branchManagerQuery
-    .input(z.object({
-      shipmentId: z.number(),
-      receivedQty: z.number().min(0),
-      condition: z.enum(["good", "partial", "damaged"]),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (!shipment[0]) throw new Error("Shipment not found");
-
-      const conditionText = input.condition === "good" ? "All items in good condition"
-        : input.condition === "partial" ? "Some items damaged/missing"
-        : "Items significantly damaged";
-
-      await db.update(shipments)
-        .set({
-          status: "completed",
-          completedAt: new Date(),
-          branchAcknowledgedQty: input.receivedQty,
-          branchAcknowledgedCondition: input.condition,
-          branchAcknowledgedAt: new Date(),
-          branchAcknowledgedBy: ctx.user.id,
-        })
-        .where(eq(shipments.id, input.shipmentId));
-
-      await db.insert(trackingEvents).values({
-        shipmentId: input.shipmentId,
-        eventType: "branch_manager_acknowledged",
-        oldStatus: shipment[0].status,
-        newStatus: "completed",
-        notes: `Branch Manager ${ctx.user.name} acknowledged delivery: ${input.receivedQty} items received. ${conditionText}. ${input.notes || ""}`,
-        createdBy: ctx.user.id,
-        actorRole: ctx.user.role,
-      });
-
-      return { success: true };
-    }),
-
-  // ── 3PL: DELIVER TO HUB (for hub-and-spoke model) ──
-  // 3PL delivers to intermediate hub (PH or Kano) instead of final branch
-  tplDeliverToHub: authedQuery
-    .input(z.object({
-      shipmentId: z.number(),
-      deliveredQty: z.number().min(0),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (!shipment[0]) throw new Error("Shipment not found");
-      if (!shipment[0].intermediateHubId) throw new Error("This shipment does not use a hub. Deliver directly to destination.");
-
-      const hubBranch = await db.select().from(branches).where(eq(branches.id, shipment[0].intermediateHubId)).limit(1);
-      const hubName = hubBranch[0]?.name || "Hub";
-      const finalBranch = await db.select().from(branches).where(eq(branches.id, shipment[0].finalDestBranchId || shipment[0].destBranchId)).limit(1);
-      const finalBranchName = finalBranch[0]?.name || "destination";
-
-      await db.update(shipments)
-        .set({
-          status: "delivered_to_hub",
-          deliveredQty: input.deliveredQty,
-          deliveredAt: new Date(),
-        })
-        .where(eq(shipments.id, input.shipmentId));
-
-      const actorId = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
-      const actorRole = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
-      await db.insert(trackingEvents).values({
-        shipmentId: input.shipmentId,
-        eventType: "delivered_to_hub",
-        oldStatus: shipment[0].status,
-        newStatus: "delivered_to_hub",
-        notes: `3PL delivered ${input.deliveredQty} items to ${hubName} (hub for ${finalBranchName}). ${input.notes || ""}`,
-        createdBy: actorId,
-        actorRole: actorRole,
-        actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
-      });
-
-      // Notify hub branch manager
-      void notifyDeliveredToHub(input.shipmentId, shipment[0].intermediateHubId, finalBranchName, shipment[0].trackingId || "N/A").catch(() => {});
-
-      return { success: true, hubName, finalBranchName };
-    }),
-
-  // ── HUB BRANCH MANAGER: ACKNOWLEDGE RECEIPT AT HUB ──
-  hubAcknowledge: branchManagerQuery
-    .input(z.object({
-      shipmentId: z.number(),
-      receivedQty: z.number().min(0),
-      condition: z.enum(["good", "partial", "damaged"]),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (!shipment[0]) throw new Error("Shipment not found");
-      if (shipment[0].intermediateHubId !== ctx.user.branchId) {
-        throw new Error("You can only acknowledge shipments at your own hub branch.");
-      }
-
-      const conditionText = input.condition === "good" ? "All items in good condition"
-        : input.condition === "partial" ? "Some items damaged/missing"
-        : "Items significantly damaged";
-
-      await db.update(shipments)
-        .set({
-          status: "at_hub_pending_transfer",
-          branchAcknowledgedQty: input.receivedQty,
-          branchAcknowledgedCondition: input.condition,
-          branchAcknowledgedAt: new Date(),
-          branchAcknowledgedBy: ctx.user.id,
-        })
-        .where(eq(shipments.id, input.shipmentId));
-
-      await db.insert(trackingEvents).values({
-        shipmentId: input.shipmentId,
-        eventType: "hub_acknowledged",
-        oldStatus: "delivered_to_hub",
-        newStatus: "at_hub_pending_transfer",
-        notes: `Hub BM ${ctx.user.name} acknowledged: ${input.receivedQty} items. ${conditionText}. ${input.notes || ""}`,
-        createdBy: ctx.user.id,
-        actorRole: ctx.user.role,
-      });
-
-      return { success: true };
-    }),
-
-  // ── HUB BRANCH MANAGER: INITIATE ONWARD TRANSFER ──
-  initiateOnwardTransfer: branchManagerQuery
-    .input(z.object({
-      shipmentId: z.number(),
-      vehiclePlate: z.string().min(1),
-      driverName: z.string().min(1),
-      driverPhone: z.string().min(1),
-      estimatedArrival: z.string().optional(),
-      notes: z.string().optional(),
-    }))
-    .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (!shipment[0]) throw new Error("Shipment not found");
-      if (shipment[0].intermediateHubId !== ctx.user.branchId) {
-        throw new Error("You can only initiate transfers from your own hub branch.");
-      }
-
-      const hubBranch = await db.select().from(branches).where(eq(branches.id, ctx.user.branchId)).limit(1);
-      const hubName = hubBranch[0]?.name || "Hub";
-      const finalBranchId = shipment[0].finalDestBranchId || shipment[0].destBranchId;
-
-      await db.update(shipments)
-        .set({
-          status: "in_last_mile",
-          onwardTransferLog: {
-            hubBranchId: ctx.user.branchId,
-            hubBranchName: hubName,
-            vehiclePlate: input.vehiclePlate,
-            driverName: input.driverName,
-            driverPhone: input.driverPhone,
-            initiatedAt: new Date().toISOString(),
-            initiatedBy: ctx.user.id,
-            initiatedByName: ctx.user.name,
-            estimatedArrival: input.estimatedArrival,
-            notes: input.notes,
-          } as any,
-        })
-        .where(eq(shipments.id, input.shipmentId));
-
-      await db.insert(trackingEvents).values({
-        shipmentId: input.shipmentId,
-        eventType: "onward_transfer_initiated",
-        oldStatus: "at_hub_pending_transfer",
-        newStatus: "in_last_mile",
-        notes: `Onward transfer from ${hubName}: Vehicle ${input.vehiclePlate}, Driver: ${input.driverName} (${input.driverPhone}). ETA: ${input.estimatedArrival || "N/A"}. ${input.notes || ""}`,
-        createdBy: ctx.user.id,
-        actorRole: ctx.user.role,
-      });
-
-      // Notify final branch manager
-      const finalBranch = await db.select().from(branches).where(eq(branches.id, finalBranchId)).limit(1);
-      void notifyOnwardTransfer(input.shipmentId, finalBranchId, hubName, shipment[0].trackingId || "N/A").catch(() => {});
-
-      return { success: true };
-    }),
-
-  // ── LIST HUB DELIVERIES (for hub branch managers) ──
-  listHubDeliveries: branchManagerQuery
-    .input(z.object({
-      status: z.enum(["delivered_to_hub", "at_hub_pending_transfer", "all"]).default("all"),
-    }).optional())
-    .query(async ({ ctx }) => {
-      const db = getDb();
-      const hubBranchId = ctx.user.branchId;
-      if (!hubBranchId) return { shipments: [], total: 0 };
-
-      const conditions = [eq(shipments.intermediateHubId, hubBranchId)];
-      const statusFilter = (input: any) => input?.status && input.status !== "all" ? eq(shipments.status, input.status as any) : undefined;
-      // Need to handle input properly
-      const where = conditions.length > 0 ? and(...conditions) : undefined;
-
-      const results = await db.select({
-        id: shipments.id,
-        trackingId: shipments.trackingId,
-        status: shipments.status,
-        destBranchId: shipments.destBranchId,
-        finalDestBranchId: shipments.finalDestBranchId,
-        receiverName: shipments.receiverName,
-        actualItemCount: shipments.actualItemCount,
-        deliveredQty: shipments.deliveredQty,
-        priority: shipments.priority,
-        createdAt: shipments.createdAt,
-        intermediateHubId: shipments.intermediateHubId,
-      })
-        .from(shipments)
-        .where(where)
-        .orderBy(desc(shipments.createdAt))
-        .limit(50);
-
-      // Get destination branch names
-      const destBranchIds = [...new Set(results.map(s => s.destBranchId).filter(Boolean))];
-      const destBranches = destBranchIds.length > 0
-        ? await db.select().from(branches).where(inArray(branches.id, destBranchIds as number[]))
-        : [];
-
-      const enriched = results.map(s => ({
-        ...s,
-        destinationBranch: destBranches.find(b => b.id === s.destBranchId)?.name || "Unknown",
-        onwardTransferLog: undefined, // Will be populated if needed
-      }));
-
-      return { shipments: enriched, total: enriched.length };
-    }),
-
-  // ── LIST INCOMING TRANSFERS (for final branch managers) ──
-  listIncomingTransfers: branchManagerQuery
-    .query(async ({ ctx }) => {
-      const db = getDb();
-      const myBranchId = ctx.user.branchId;
-      if (!myBranchId) return { shipments: [], total: 0 };
-
-      // Shipments where I am the final destination and status is in_last_mile
-      const results = await db.select({
-        id: shipments.id,
-        trackingId: shipments.trackingId,
-        status: shipments.status,
-        destBranchId: shipments.destBranchId,
-        finalDestBranchId: shipments.finalDestBranchId,
-        receiverName: shipments.receiverName,
-        actualItemCount: shipments.actualItemCount,
-        priority: shipments.priority,
-        createdAt: shipments.createdAt,
-        intermediateHubId: shipments.intermediateHubId,
-        onwardTransferLog: shipments.onwardTransferLog,
-      })
-        .from(shipments)
-        .where(
-          and(
-            eq(shipments.status, "in_last_mile" as any),
-            eq(shipments.finalDestBranchId, myBranchId)
-          )
-        )
-        .orderBy(desc(shipments.createdAt))
-        .limit(50);
-
-      // Get hub branch names
-      const hubIds = [...new Set(results.map(s => s.intermediateHubId).filter(Boolean))];
-      const hubBranches = hubIds.length > 0
-        ? await db.select().from(branches).where(inArray(branches.id, hubIds as number[]))
-        : [];
-
-      const enriched = results.map(s => ({
-        ...s,
-        hubBranchName: hubBranches.find(b => b.id === s.intermediateHubId)?.name || "Unknown",
-      }));
-
-      return { shipments: enriched, total: enriched.length };
     }),
 
   // ── LIST SHIPMENTS ──
@@ -725,6 +435,10 @@ export const shipmentRouter = createRouter({
 
       if (ctx.user?.role === "driver") {
         conditions.push(eq(shipments.assignedDriverId, ctx.user.id));
+      }
+      // Branch managers only see shipments to their branch
+      if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
+        conditions.push(eq(shipments.destBranchId, ctx.user.branchId));
       }
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -852,9 +566,6 @@ export const shipmentRouter = createRouter({
         : [];
       const events = await db.select().from(trackingEvents).where(eq(trackingEvents.shipmentId, input.id)).orderBy(trackingEvents.createdAt);
       const creator = await db.select({ name: users.name }).from(users).where(eq(users.id, shipment[0].createdBy)).limit(1);
-      const hubBranch = shipment[0].intermediateHubId
-        ? await db.select().from(branches).where(eq(branches.id, shipment[0].intermediateHubId)).limit(1)
-        : [];
 
       return {
         ...shipment[0],
@@ -866,7 +577,6 @@ export const shipmentRouter = createRouter({
         driverPhone: driver[0]?.phone || null,
         creatorName: creator[0]?.name || "Unknown",
         trackingEvents: events,
-        hubBranchName: hubBranch[0]?.name || null,
       };
     }),
 

@@ -1,9 +1,6 @@
 import { Outlet, useNavigate, useLocation } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
-import { Home, Package, Users, ScanLine, UserCircle, Warehouse } from "lucide-react";
-import { Toaster } from "@/components/ui/sonner";
-
-const HUB_BRANCH_IDS = [4000007, 4000012]; // PH=4000007, Kano=4000012
+import { Home, Package, Users, ScanLine, UserCircle } from "lucide-react";
 
 export function AppLayout() {
   const navigate = useNavigate();
@@ -11,21 +8,18 @@ export function AppLayout() {
   const { user } = useAuth();
 
   const role = user?.role;
-  const isSuperAdmin = role === "super_admin";
-  const isHubManager = role === "branch_manager" && user?.branchId && HUB_BRANCH_IDS.includes(user.branchId);
+  const isAdmin = role === "super_admin" || role === "admin";
 
   const tabs = [
     { path: "/", icon: Home, label: "Home" },
     { path: "/shipments", icon: Package, label: "Shipments" },
-    ...(isSuperAdmin ? [{ path: "/users", icon: Users, label: "Users" }] : []),
-    ...(isHubManager ? [{ path: "/hub-deliveries", icon: Warehouse, label: "Hub" }] : []),
+    ...(isAdmin ? [{ path: "/users", icon: Users, label: "Users" }] : []),
     { path: "/scan", icon: ScanLine, label: "Scan" },
     { path: "/profile", icon: UserCircle, label: "Profile" },
   ];
 
   return (
     <div className="flex flex-col h-screen bg-[#F8FAFC]">
-      <Toaster position="top-center" richColors />
       <main className="flex-1 overflow-y-auto pb-20">
         <Outlet />
       </main>

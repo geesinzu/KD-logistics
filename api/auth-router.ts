@@ -43,7 +43,7 @@ export const authRouter = createRouter({
         name: input.name,
         phone: input.phone,
         passwordHash,
-        role: "unassigned",
+        role: "driver",
         status: "pending",
       });
       return { success: true, message: "Account created. Waiting for admin approval." };

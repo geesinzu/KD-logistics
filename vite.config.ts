@@ -14,9 +14,6 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: "autoUpdate",
-      strategies: "injectManifest",
-      srcDir: "public",
-      filename: "custom-sw.js",
       manifest: {
         name: "KEDI Healthcare Logistics",
         short_name: "KEDI Logistics",
@@ -38,11 +35,9 @@ export default defineConfig({
           { src: "/icons/icon-512x512.png", sizes: "512x512", type: "image/png" },
         ],
       },
-      injectManifest: {
+      workbox: {
         globPatterns: ["**/*.{js,css,html,png,jpg,jpeg,svg,ico,woff2}"],
         maximumFileSizeToCacheInBytes: 3 * 1024 * 1024,
-      },
-      workbox: {
         runtimeCaching: [
           {
             urlPattern: /^https:\/\/.*\.tile\.openstreetmap\.org\/.*/i,

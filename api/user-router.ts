@@ -98,6 +98,14 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
+  delete: adminQuery
+    .input(z.object({ id: z.number() }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      await db.delete(users).where(eq(users.id, input.id));
+      return { success: true };
+    }),
+
   create: adminQuery
     .input(z.object({
       name: z.string().min(2),

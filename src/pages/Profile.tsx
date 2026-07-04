@@ -1,13 +1,11 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
-import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ROLE_LABELS } from "@contracts/constants";
-import { UserCircle, Phone, Shield, LogOut, Package, Camera, Loader2, Bell, BellOff } from "lucide-react";
-import { toast } from "sonner";
+import { UserCircle, Phone, Shield, LogOut, Package, Camera, Loader2 } from "lucide-react";
 
 function resizeImage(file: File, maxWidth: number, maxHeight: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -46,7 +44,6 @@ export default function Profile() {
   const utils = trpc.useUtils();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const { isSupported, isSubscribed, permission, subscribe, unsubscribe, isConfiguring } = usePushNotifications();
 
   const uploadMutation = trpc.user.uploadProfilePicture.useMutation({
     onSuccess: () => {
@@ -127,47 +124,6 @@ export default function Profile() {
           </div>
         </CardContent>
       </Card>
-
-      {/* Push Notifications */}
-      {isSupported && (
-        <Card className="border-0 shadow-sm mb-4">
-          <CardContent className="p-4">
-            <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-1">
-              <Bell size={12} /> Push Notifications
-            </h3>
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm font-medium">
-                  {isSubscribed ? "Notifications enabled" : permission === "denied" ? "Notifications blocked" : "Notifications disabled"}
-                </p>
-                <p className="text-xs text-gray-400">
-                  {isSubscribed ? "You'll receive alerts for shipment events" : permission === "denied" ? "Enable in browser settings" : "Get notified when shipments arrive"}
-                </p>
-              </div>
-              <Button
-                size="sm"
-                variant={isSubscribed ? "outline" : "default"}
-                className={isSubscribed ? "text-red-600 border-red-200" : "bg-[#003B7A]"}
-                disabled={permission === "denied" || isConfiguring}
-                onClick={async () => {
-                  if (isSubscribed) {
-                    await unsubscribe();
-                    toast.success("Push notifications disabled");
-                  } else {
-                    const ok = await subscribe();
-                    if (ok) toast.success("Push notifications enabled");
-                    else toast.error("Failed to enable notifications");
-                  }
-                }}
-              >
-                {isConfiguring ? <Loader2 size={14} className="animate-spin" /> :
-                  isSubscribed ? <><BellOff size={14} className="mr-1" /> Disable</> :
-                  <><Bell size={14} className="mr-1" /> Enable</>}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-      )}
 
       {/* Quick links */}
       <Card className="border-0 shadow-sm mb-4">
