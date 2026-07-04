@@ -67,6 +67,9 @@ export const SHIPMENT_STATUSES = [
   "in_transit_with_3pl",
   "partially_delivered",
   "delivered",
+  "delivered_to_hub",
+  "at_hub_pending_transfer",
+  "in_last_mile",
   "completed",
   "cancelled",
 ] as const;
@@ -84,6 +87,9 @@ export const STATUS_LABELS: Record<string, string> = {
   in_transit_with_3pl: "In Transit",
   partially_delivered: "Partially Delivered",
   delivered: "Delivered",
+  delivered_to_hub: "Delivered to Hub",
+  at_hub_pending_transfer: "At Hub - Pending Transfer",
+  in_last_mile: "In Last-Mile Delivery",
   completed: "Completed",
   cancelled: "Cancelled",
 };
@@ -101,6 +107,9 @@ export const STATUS_COLORS: Record<string, string> = {
   in_transit_with_3pl: "bg-sky-50 text-sky-700",
   partially_delivered: "bg-orange-50 text-orange-700",
   delivered: "bg-green-100 text-green-700",
+  delivered_to_hub: "bg-violet-100 text-violet-700",
+  at_hub_pending_transfer: "bg-amber-100 text-amber-700",
+  in_last_mile: "bg-cyan-100 text-cyan-700",
   completed: "bg-emerald-100 text-emerald-700",
   cancelled: "bg-red-100 text-red-700",
 };
@@ -156,3 +165,32 @@ export const BRANCHES = [
   { name: "Apapa", city: "Apapa, Lagos" },
   { name: "Uyo", city: "Uyo" },
 ];
+
+// ── HUB COVERAGE ──
+// When 3PL delivers to a hub, the hub BM handles onward transfer to final branch
+export const HUB_BRANCH_NAMES = ["PH", "Kano"] as const;
+
+// Maps destination branches to their intermediate hub (undefined = direct delivery)
+export const HUB_COVERAGE: Record<string, string> = {
+  // PH Hub covers
+  "Bayelsa": "PH",
+  "Uyo": "PH",
+  "PH": "PH",
+  // Kano Hub covers
+  "Yola": "Kano",
+  "Bauchi": "Kano",
+  "Kano": "Kano",
+  // All others: direct 3PL delivery (no entry = no hub)
+};
+
+// Reverse lookup: given a hub name, what final destinations does it cover?
+export function getHubCoverage(hubName: string): string[] {
+  return Object.entries(HUB_COVERAGE)
+    .filter(([, hub]) => hub === hubName)
+    .map(([branch]) => branch);
+}
+
+// Get hub for a destination branch (returns undefined if direct delivery)
+export function getHubForBranch(branchName: string): string | undefined {
+  return HUB_COVERAGE[branchName];
+}

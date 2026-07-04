@@ -13,6 +13,7 @@ import Assign3pl from "./pages/Assign3pl";
 import DriverDeliveries from "./pages/DriverDeliveries";
 import QrScanner from "./pages/QrScanner";
 import Users from "./pages/Users";
+import HubDeliveries from "./pages/HubDeliveries";
 import Profile from "./pages/Profile";
 import NotFound from "./pages/NotFound";
 import { AppLayout } from "./components/AppLayout";
@@ -51,6 +52,7 @@ export default function App() {
         <Route path="/driver/deliveries" element={<ProtectedRoute requiredRoles={["super_admin","admin","driver"]}><DriverDeliveries /></ProtectedRoute>} />
         <Route path="/scan" element={<ProtectedRoute><QrScanner /></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute requiredRoles={["super_admin"]}><Users /></ProtectedRoute>} />
+        <Route path="/hub-deliveries" element={<ProtectedRoute requiredRoles={["super_admin","admin","branch_manager"]}><HubDeliveries /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       </Route>
     </Routes>

@@ -131,6 +131,9 @@ export const shipments = mysqlTable("shipments", {
     "in_transit_with_3pl",
     "partially_delivered",
     "delivered",
+    "delivered_to_hub",
+    "at_hub_pending_transfer",
+    "in_last_mile",
     "completed",
     "cancelled",
   ]).default("created").notNull(),
@@ -140,6 +143,17 @@ export const shipments = mysqlTable("shipments", {
   deliveredQty: int("delivered_qty"),
   remainingQty: int("remaining_qty"),
   completedAt: timestamp("completed_at"),
+
+  // Branch Manager Acknowledgement
+  branchAcknowledgedQty: int("branch_acknowledged_qty"),
+  branchAcknowledgedCondition: mysqlEnum("branch_acknowledged_condition", ["good", "partial", "damaged"]),
+  branchAcknowledgedAt: timestamp("branch_acknowledged_at"),
+  branchAcknowledgedBy: bigint("branch_acknowledged_by", { mode: "number", unsigned: true }),
+
+  // Hub & Last-Mile (for regional hub delivery model)
+  intermediateHubId: bigint("intermediate_hub_id", { mode: "number", unsigned: true }),
+  finalDestBranchId: bigint("final_dest_branch_id", { mode: "number", unsigned: true }),
+  onwardTransferLog: json("onward_transfer_log"),
 
   // Timestamps
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -167,6 +181,9 @@ export const trackingEvents = mysqlTable("tracking_events", {
     "tpl_partial_delivery",
     "tpl_full_delivery",
     "delay_reported",
+    "delivered_to_hub",
+    "hub_acknowledged",
+    "onward_transfer_initiated",
     "cancelled",
     "note_added",
   ]).notNull(),
@@ -201,6 +218,20 @@ export const tplUsers = mysqlTable("tpl_users", {
 });
 
 export type TplUser = typeof tplUsers.$inferSelect;
+
+// ── PUSH SUBSCRIPTIONS ──
+export const pushSubscriptions = mysqlTable("push_subscriptions", {
+  id: serial("id").primaryKey(),
+  userId: bigint("user_id", { mode: "number", unsigned: true }),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth_key").notNull(),
+  userAgent: text("user_agent"),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull().$onUpdate(() => new Date()),
+});
+
+export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 
 // ── ACTIVITY LOG ──
 export const activityLog = mysqlTable("activity_log", {

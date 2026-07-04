@@ -9,6 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ROLE_LABELS, KEDI_ROLES } from "@contracts/constants";
 import { Search, UserPlus, Truck, Trash2 } from "lucide-react";
+import { toast } from "sonner";
 
 export default function Users() {
   const [search, setSearch] = useState("");
@@ -20,27 +21,46 @@ export default function Users() {
   // 3PL staff
   const [showAdd3pl, setShowAdd3pl] = useState(false);
   const [new3pl, setNew3pl] = useState({ name: "", phone: "", password: "", tplId: "" });
+  const [tplError, setTplError] = useState("");
 
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.user.list.useQuery({ page, limit: 20, search: search || undefined, status: statusFilter || undefined });
 
   const updateStatusMutation = trpc.user.updateStatus.useMutation({
-    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); },
+    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); toast.success("User status updated"); },
+    onError: (err) => toast.error(err.message || "Failed to update status"),
   });
   const updateRoleMutation = trpc.user.updateRole.useMutation({
-    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); },
+    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); toast.success("Role updated"); },
+    onError: (err) => toast.error(err.message || "Failed to update role"),
   });
   const createUserMutation = trpc.user.create.useMutation({
-    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); setShowAdd(false); setNewUser({ name: "", phone: "", role: "driver", password: "" }); },
+    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); setShowAdd(false); setNewUser({ name: "", phone: "", role: "driver", password: "" }); toast.success("User created successfully"); },
+    onError: (err) => toast.error(err.message || "Failed to create user"),
   });
 
   const { data: tplList } = trpc.tpl.list.useQuery();
-  const { data: tplUsersList } = trpc.tpl.listUsers.useQuery(undefined, { enabled: showAdd3pl });
+  const { data: tplUsersList, error: tplListError } = trpc.tpl.listUsers.useQuery(undefined, {
+    enabled: showAdd3pl,
+    onError: (err: any) => { toast.error("Failed to load 3PL staff: " + (err.message || "Unknown error")); },
+  });
   const create3plUserMutation = trpc.tpl.createUser.useMutation({
-    onSuccess: () => { utils.tpl.listUsers.invalidate(); setShowAdd3pl(false); setNew3pl({ name: "", phone: "", password: "", tplId: "" }); },
+    onSuccess: () => {
+      utils.tpl.listUsers.invalidate();
+      setShowAdd3pl(false);
+      setNew3pl({ name: "", phone: "", password: "", tplId: "" });
+      setTplError("");
+      toast.success("3PL staff account created successfully");
+    },
+    onError: (err) => {
+      const msg = err.message || "Failed to create 3PL staff account";
+      setTplError(msg);
+      toast.error(msg);
+    },
   });
   const delete3plUserMutation = trpc.tpl.deleteUser.useMutation({
-    onSuccess: () => { utils.tpl.listUsers.invalidate(); },
+    onSuccess: () => { utils.tpl.listUsers.invalidate(); toast.success("3PL staff deleted"); },
+    onError: (err) => toast.error(err.message || "Failed to delete 3PL staff"),
   });
 
   const statusColors: Record<string, string> = {
@@ -167,14 +187,27 @@ export default function Users() {
                 </Select>
               </div>
               <div><Label>Password</Label><Input type="password" value={new3pl.password} onChange={e => setNew3pl({ ...new3pl, password: e.target.value })} placeholder="Default: tpl1234" /></div>
-              <Button className="w-full bg-indigo-600 hover:bg-indigo-700" onClick={() => create3plUserMutation.mutate({
-                name: new3pl.name,
-                phone: new3pl.phone,
-                password: new3pl.password || "tpl1234",
-                tplId: Number(new3pl.tplId),
-              })} disabled={create3plUserMutation.isPending || !new3pl.tplId}>
+              <Button className="w-full bg-indigo-600 hover:bg-indigo-700" onClick={() => {
+                setTplError("");
+                create3plUserMutation.mutate({
+                  name: new3pl.name,
+                  phone: new3pl.phone,
+                  password: new3pl.password || "tpl1234",
+                  tplId: Number(new3pl.tplId),
+                });
+              }} disabled={create3plUserMutation.isPending || !new3pl.tplId}>
                 {create3plUserMutation.isPending ? "Creating..." : "Create 3PL Account"}
               </Button>
+              {tplError && (
+                <div className="text-xs text-red-600 bg-red-50 p-2 rounded border border-red-200 mt-1">
+                  {tplError}
+                </div>
+              )}
+              {tplListError && (
+                <div className="text-xs text-amber-600 bg-amber-50 p-2 rounded border border-amber-200 mt-1">
+                  Could not load 3PL staff list. You may not have permission to view this data.
+                </div>
+              )}
 
               {/* Existing 3PL staff list */}
               {tplUsersList && tplUsersList.length > 0 && (
