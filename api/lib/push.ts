@@ -32,13 +32,16 @@ export async function sendPushToUser(userId: number, payload: PushPayload): Prom
   if (!isPushConfigured()) return;
   const db = getDb();
   const subs = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
+  console.log(`[Push] User ${userId}: ${subs.length} subscription(s). Sending: "${payload.title}"`);
   for (const sub of subs) {
     try {
       await webPush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
         JSON.stringify(payload)
       );
+      console.log(`[Push] ✅ Sent to ${sub.endpoint.substring(0, 40)}...`);
     } catch (err: any) {
+      console.error(`[Push] ❌ Failed (${err.statusCode}): ${sub.endpoint.substring(0, 40)}...`);
       if (err.statusCode === 410 || err.statusCode === 404) {
         await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, sub.id));
       }
@@ -50,13 +53,16 @@ export async function sendPushToTplUser(tplUserId: number, payload: PushPayload)
   if (!isPushConfigured()) return;
   const db = getDb();
   const subs = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.tplUserId, tplUserId));
+  console.log(`[Push] TPL User ${tplUserId}: ${subs.length} subscription(s). Sending: "${payload.title}"`);
   for (const sub of subs) {
     try {
       await webPush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
         JSON.stringify(payload)
       );
+      console.log(`[Push] ✅ Sent to ${sub.endpoint.substring(0, 40)}...`);
     } catch (err: any) {
+      console.error(`[Push] ❌ Failed (${err.statusCode}): ${sub.endpoint.substring(0, 40)}...`);
       if (err.statusCode === 410 || err.statusCode === 404) {
         await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, sub.id));
       }

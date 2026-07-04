@@ -16,16 +16,40 @@ export function usePushNotifications() {
   const [isSupported, setIsSupported] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>("default");
+  const [isChecking, setIsChecking] = useState(true);
 
   const { data: vapidData } = trpc.push.vapidKey.useQuery();
   const subscribeMutation = trpc.push.subscribe.useMutation();
   const unsubscribeAllMutation = trpc.push.unsubscribeAll.useMutation();
 
+  // Check existing subscription on mount
   useEffect(() => {
-    if (typeof window !== "undefined" && "serviceWorker" in navigator && "PushManager" in window) {
-      setIsSupported(true);
-      setPermission(Notification.permission);
+    if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+      setIsChecking(false);
+      return;
     }
+
+    setIsSupported(true);
+    setPermission(Notification.permission);
+
+    // Check if browser already has a push subscription
+    navigator.serviceWorker.ready.then((registration) => {
+      registration.pushManager.getSubscription().then((existingSub) => {
+        if (existingSub) {
+          console.log("[Push] Found existing subscription:", existingSub.endpoint.substring(0, 40) + "...");
+          setIsSubscribed(true);
+        } else {
+          console.log("[Push] No existing subscription found");
+        }
+        setIsChecking(false);
+      }).catch((err) => {
+        console.error("[Push] Error checking subscription:", err);
+        setIsChecking(false);
+      });
+    }).catch((err) => {
+      console.error("[Push] Service worker not ready:", err);
+      setIsChecking(false);
+    });
   }, []);
 
   const subscribe = useCallback(async () => {
@@ -40,6 +64,7 @@ export function usePushNotifications() {
         applicationServerKey: urlBase64ToUint8Array(vapidData.key),
       });
       const json = subscription.toJSON();
+      console.log("[Push] Subscribed:", json.endpoint?.substring(0, 40) + "...");
       await subscribeMutation.mutateAsync({
         endpoint: json.endpoint!,
         p256dh: json.keys?.p256dh!,
@@ -49,7 +74,7 @@ export function usePushNotifications() {
       setIsSubscribed(true);
       return true;
     } catch (err) {
-      console.error("Push subscription failed:", err);
+      console.error("[Push] Subscription failed:", err);
       return false;
     }
   }, [isSupported, vapidData, subscribeMutation]);
@@ -61,9 +86,10 @@ export function usePushNotifications() {
       const subscription = await registration.pushManager.getSubscription();
       if (subscription) await subscription.unsubscribe();
       setIsSubscribed(false);
+      console.log("[Push] Unsubscribed");
       return true;
     } catch (err) {
-      console.error("Unsubscribe failed:", err);
+      console.error("[Push] Unsubscribe failed:", err);
       return false;
     }
   }, [unsubscribeAllMutation]);
@@ -74,6 +100,6 @@ export function usePushNotifications() {
     permission,
     subscribe,
     unsubscribe,
-    isConfiguring: subscribeMutation.isPending || unsubscribeAllMutation.isPending,
+    isConfiguring: subscribeMutation.isPending || unsubscribeAllMutation.isPending || isChecking,
   };
 }
