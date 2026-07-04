@@ -72,7 +72,7 @@ export const tplQuery = t.procedure.use(requireTplUser);
 // Role-based KEDI procedures
 export const adminQuery = kediQuery.use(requireRoles(["super_admin", "admin"]));
 export const superAdminQuery = kediQuery.use(requireRoles(["super_admin"]));
-export const shipmentCreatorQuery = kediQuery.use(requireRoles(["super_admin", "admin", "shipment_creator"]));
+export const shipmentCreatorQuery = kediQuery.use(requireRoles(["super_admin", "admin", "shipment_creator", "logistics_officer"]));
 export const warehouseQuery = kediQuery.use(requireRoles(["super_admin", "admin", "warehouse_supply"]));
 export const logisticsQuery = kediQuery.use(requireRoles(["super_admin", "admin", "logistics_officer"]));
 export const driverQuery = kediQuery.use(requireRoles(["super_admin", "admin", "driver"]));

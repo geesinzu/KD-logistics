@@ -45,7 +45,7 @@ export default function App() {
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/shipments" element={<ProtectedRoute><Shipments /></ProtectedRoute>} />
         <Route path="/shipments/:id" element={<ProtectedRoute><ShipmentDetail /></ProtectedRoute>} />
-        <Route path="/shipments/create" element={<ProtectedRoute requiredRoles={["super_admin","admin","shipment_creator"]}><CreateShipment /></ProtectedRoute>} />
+        <Route path="/shipments/create" element={<ProtectedRoute requiredRoles={["super_admin","admin","shipment_creator","logistics_officer"]}><CreateShipment /></ProtectedRoute>} />
         <Route path="/warehouse/:id" element={<ProtectedRoute requiredRoles={["super_admin","admin","warehouse_supply"]}><WarehouseProcess /></ProtectedRoute>} />
         <Route path="/assign-3pl/:id" element={<ProtectedRoute requiredRoles={["super_admin","admin","logistics_officer"]}><Assign3pl /></ProtectedRoute>} />
         <Route path="/driver/deliveries" element={<ProtectedRoute requiredRoles={["super_admin","admin","driver"]}><DriverDeliveries /></ProtectedRoute>} />
