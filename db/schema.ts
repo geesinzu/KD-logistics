@@ -206,6 +206,7 @@ export type TplUser = typeof tplUsers.$inferSelect;
 export const pushSubscriptions = mysqlTable("push_subscriptions", {
   id: serial("id").primaryKey(),
   userId: bigint("user_id", { mode: "number", unsigned: true }),
+  tplUserId: bigint("tpl_user_id", { mode: "number", unsigned: true }),
   endpoint: text("endpoint").notNull(),
   p256dh: text("p256dh").notNull(),
   auth: text("auth_key").notNull(),

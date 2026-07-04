@@ -4,7 +4,10 @@ import { shipments, trackingEvents, users, branches, thirdPartyLogistics } from 
 import { getDb } from "./queries/connection";
 import { createRouter, authedQuery, adminQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
 import { BRANCH_TRACKING_CODES } from "@contracts/constants";
-import { notifyShipmentCreated, notifyShipmentCompleted } from "./lib/push";
+import {
+  notifyShipmentCreated, notifyWarehouseProcessed, notify3plAssigned,
+  notify3plStatusUpdate, notifyShipmentDelivered, notifyShipmentCompleted,
+} from "./lib/push";
 
 function generateTrackingId(branchName: string): string {
   const code = BRANCH_TRACKING_CODES[branchName] || "XX";
@@ -118,6 +121,9 @@ export const shipmentRouter = createRouter({
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
+      // Notify ops team that warehouse processing is done
+      void notifyWarehouseProcessed(input.shipmentId, shipment[0].destBranchId, trackingId).catch(() => {});
+
       return { success: true, trackingId, qrToken };
     }),
 
@@ -188,6 +194,12 @@ export const shipmentRouter = createRouter({
           createdBy: ctx.user.id,
           actorRole: ctx.user.role,
         });
+      }
+
+      // Notify 3PL company and ops team
+      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+      if (shipment[0]) {
+        void notify3plAssigned(input.shipmentId, input.tplId, shipment[0].trackingId || "N/A", shipment[0].destBranchId).catch(() => {});
       }
 
       return { success: true, tplName };
@@ -270,6 +282,12 @@ export const shipmentRouter = createRouter({
         actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
       });
 
+      // Notify ops team that 3PL picked up
+      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+      if (shipment[0] && shipment[0].tplId) {
+        void notify3plStatusUpdate(input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A", "tpl_pickup_from_warehouse").catch(() => {});
+      }
+
       return { success: true };
     }),
 
@@ -314,6 +332,11 @@ export const shipmentRouter = createRouter({
         actorRole: actorRole2,
         actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
       });
+
+      // Notify ops team that 3PL confirmed receipt
+      if (shipment[0].tplId) {
+        void notify3plStatusUpdate(input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A", "tpl_receipt_confirmed").catch(() => {});
+      }
 
       return { success: true, totalQty, receivedQty: input.receivedQty };
     }),
@@ -376,6 +399,21 @@ export const shipmentRouter = createRouter({
         actorRole: actorRole3,
         actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
       });
+
+      // Notify ops team (and branch manager on full delivery)
+      if (shipment[0].tplId) {
+        if (input.updateType === "full_delivery") {
+          void notifyShipmentDelivered(input.shipmentId, shipment[0].destBranchId, shipment[0].trackingId || "N/A").catch(() => {});
+        } else {
+          void notify3plStatusUpdate(
+            input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A",
+            input.updateType === "partial_delivery" ? "tpl_partial_delivery"
+              : input.updateType === "delay_reported" ? "delay_reported"
+              : "tpl_location_update",
+            input.location
+          ).catch(() => {});
+        }
+      }
 
       return { success: true, newStatus };
     }),
