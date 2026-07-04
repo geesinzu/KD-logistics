@@ -5,7 +5,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ROLE_LABELS, STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { Package, Truck, Clock, CheckCircle, AlertTriangle, Plus, UserCheck, Boxes } from "lucide-react";
+import { Package, Truck, Clock, CheckCircle, AlertTriangle, Plus, UserCheck, Boxes, Timer } from "lucide-react";
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -13,6 +13,7 @@ export default function Dashboard() {
   const role = user?.role;
 
   const { data: stats } = trpc.shipment.stats.useQuery();
+  const { data: attention } = trpc.shipment.attentionStats.useQuery();
   const { data: recentShipments } = trpc.shipment.list.useQuery({ page: 1, limit: 5 });
   const { data: userStats } = trpc.user.stats.useQuery(undefined, { enabled: isAdmin });
 
@@ -35,12 +36,42 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions */}
-      {role && ["super_admin", "admin", "shipment_creator"].includes(role) && (
+      {role && ["super_admin", "admin", "shipment_creator", "logistics_officer"].includes(role) && (
         <div className="flex gap-2 mb-4">
           <Button size="sm" className="bg-[#003B7A] hover:bg-[#002B5A] flex-1 h-10" onClick={() => navigate("/shipments/create")}>
             <Plus size={16} className="mr-1" /> New Shipment
           </Button>
         </div>
+      )}
+
+      {/* Attention Alert — Overdue/Due Soon */}
+      {attention && attention.total > 0 && (
+        <Card className={`border-0 shadow-sm mb-4 ${attention.overdue > 0 ? "bg-red-50" : "bg-amber-50"}`}>
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              {attention.overdue > 0 ? (
+                <><AlertTriangle size={18} className="text-red-600" /><span className="text-sm font-semibold text-red-800">Attention Required</span></>
+              ) : (
+                <><Timer size={18} className="text-amber-600" /><span className="text-sm font-semibold text-amber-800">Deliveries Due Soon</span></>
+              )}
+            </div>
+            <div className="flex gap-4 text-center">
+              {attention.overdue > 0 && (
+                <div><p className="text-2xl font-bold text-red-600">{attention.overdue}</p><p className="text-[10px] text-red-700">Overdue</p></div>
+              )}
+              {attention.dueSoon > 0 && (
+                <div><p className="text-2xl font-bold text-amber-600">{attention.dueSoon}</p><p className="text-[10px] text-amber-700">Due within 24h</p></div>
+              )}
+              {attention.onTrack > 0 && (
+                <div><p className="text-2xl font-bold text-green-600">{attention.onTrack}</p><p className="text-[10px] text-green-700">On track</p></div>
+              )}
+            </div>
+            <Button size="sm" className={`mt-2 w-full ${attention.overdue > 0 ? "bg-red-600 hover:bg-red-700" : "bg-amber-600 hover:bg-amber-700"}`}
+              onClick={() => navigate("/shipments")}>
+              View Shipments
+            </Button>
+          </CardContent>
+        </Card>
       )}
 
       {/* KPI Cards */}

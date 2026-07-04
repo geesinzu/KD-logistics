@@ -464,6 +464,7 @@ export const shipmentRouter = createRouter({
         tplId: shipments.tplId,
         assignedDriverId: shipments.assignedDriverId,
         priority: shipments.priority,
+        estimatedDeliveryDate: shipments.estimatedDeliveryDate,
         createdAt: shipments.createdAt,
         updatedAt: shipments.updatedAt,
       })
@@ -483,11 +484,26 @@ export const shipmentRouter = createRouter({
         ? await db.select().from(thirdPartyLogistics).where(inArray(thirdPartyLogistics.id, tplIds as number[]))
         : [];
 
-      const enriched = results.map(s => ({
-        ...s,
-        destinationBranch: branchList.find(b => b.id === s.destBranchId)?.name || "Unknown",
-        tplName: tplList.find(t => t.id === s.tplId)?.name || null,
-      }));
+      const now = new Date();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      const enriched = results.map(s => {
+        const eta = s.estimatedDeliveryDate ? new Date(s.estimatedDeliveryDate) : null;
+        const isDone = ["delivered", "completed", "cancelled"].includes(s.status);
+        let slaStatus: "no_eta" | "on_track" | "due_soon" | "overdue" = "no_eta";
+        if (eta && !isDone) {
+          const diffMs = eta.getTime() - now.getTime();
+          if (diffMs < 0) slaStatus = "overdue";
+          else if (diffMs < oneDayMs) slaStatus = "due_soon";
+          else slaStatus = "on_track";
+        }
+        return {
+          ...s,
+          destinationBranch: branchList.find(b => b.id === s.destBranchId)?.name || "Unknown",
+          tplName: tplList.find(t => t.id === s.tplId)?.name || null,
+          slaStatus,
+          daysUntilEta: eta && !isDone ? Math.ceil((eta.getTime() - now.getTime()) / oneDayMs) : null,
+        };
+      });
 
       const countResult = await db.select({ count: sql<number>`count(*)` }).from(shipments).where(where);
       return { shipments: enriched, total: countResult[0]?.count ?? 0 };
@@ -531,6 +547,7 @@ export const shipmentRouter = createRouter({
         tplPickupType: shipments.tplPickupType,
         assignedDriverId: shipments.assignedDriverId,
         priority: shipments.priority,
+        estimatedDeliveryDate: shipments.estimatedDeliveryDate,
         createdAt: shipments.createdAt,
         updatedAt: shipments.updatedAt,
         deliveredQty: shipments.deliveredQty,
@@ -547,10 +564,25 @@ export const shipmentRouter = createRouter({
         ? await db.select().from(branches).where(inArray(branches.id, branchIds as number[]))
         : [];
 
-      const enriched = results.map(s => ({
-        ...s,
-        destinationBranch: branchList.find(b => b.id === s.destBranchId)?.name || "Unknown",
-      }));
+      const now = new Date();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      const enriched = results.map(s => {
+        const eta = s.estimatedDeliveryDate ? new Date(s.estimatedDeliveryDate) : null;
+        const isDone = ["delivered", "completed", "cancelled"].includes(s.status);
+        let slaStatus: "no_eta" | "on_track" | "due_soon" | "overdue" = "no_eta";
+        if (eta && !isDone) {
+          const diffMs = eta.getTime() - now.getTime();
+          if (diffMs < 0) slaStatus = "overdue";
+          else if (diffMs < oneDayMs) slaStatus = "due_soon";
+          else slaStatus = "on_track";
+        }
+        return {
+          ...s,
+          destinationBranch: branchList.find(b => b.id === s.destBranchId)?.name || "Unknown",
+          slaStatus,
+          daysUntilEta: eta && !isDone ? Math.ceil((eta.getTime() - now.getTime()) / oneDayMs) : null,
+        };
+      });
 
       const countResult = await db.select({ count: sql<number>`count(*)` }).from(shipments).where(where);
       return { shipments: enriched, total: countResult[0]?.count ?? 0 };
@@ -624,6 +656,96 @@ export const shipmentRouter = createRouter({
       cancelled: filtered.filter(s => s.status === "cancelled").length,
     };
   }),
+
+  // ── ATTENTION STATS (overdue / due soon) ──
+  attentionStats: authedQuery.query(async ({ ctx }) => {
+    const db = getDb();
+    const now = new Date();
+    const oneDayMs = 24 * 60 * 60 * 1000;
+    const activeStatuses = ["in_transit_with_3pl", "picked_up", "tpl_confirmed", "at_3pl", "picked_up_by_3pl", "waiting_3pl_pickup", "waiting_driver_pickup"];
+
+    let query = db.select().from(shipments).where(and(
+      inArray(shipments.status, activeStatuses as any),
+      sql`${shipments.estimatedDeliveryDate} IS NOT NULL`
+    ));
+
+    // Branch managers only see shipments to their branch
+    if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
+      query = db.select().from(shipments).where(and(
+        inArray(shipments.status, activeStatuses as any),
+        sql`${shipments.estimatedDeliveryDate} IS NOT NULL`,
+        eq(shipments.destBranchId, ctx.user.branchId)
+      ));
+    }
+
+    const results = await query;
+    let overdue = 0;
+    let dueSoon = 0;
+    let onTrack = 0;
+    for (const s of results) {
+      const eta = new Date(s.estimatedDeliveryDate!);
+      const diffMs = eta.getTime() - now.getTime();
+      if (diffMs < 0) overdue++;
+      else if (diffMs < oneDayMs) dueSoon++;
+      else onTrack++;
+    }
+    return { overdue, dueSoon, onTrack, total: results.length };
+  }),
+
+  // ── FLAG OVERDUE SHIPMENTS ──
+  // Auto-detects shipments past their ETA and flags them
+  flagOverdue: authedQuery
+    .input(z.object({ shipmentId: z.number(), notes: z.string().optional() }).optional())
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const now = new Date();
+      const oneDayMs = 24 * 60 * 60 * 1000;
+      const activeStatuses = ["in_transit_with_3pl", "picked_up", "tpl_confirmed", "at_3pl", "picked_up_by_3pl", "waiting_3pl_pickup", "waiting_driver_pickup"];
+
+      // If specific shipmentId provided, check just that one
+      if (input?.shipmentId) {
+        const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+        if (!shipment[0] || !shipment[0].estimatedDeliveryDate) return { flagged: 0 };
+        const eta = new Date(shipment[0].estimatedDeliveryDate);
+        if (eta.getTime() - now.getTime() < 0 && activeStatuses.includes(shipment[0].status)) {
+          await db.insert(trackingEvents).values({
+            shipmentId: input.shipmentId,
+            eventType: "delay_reported",
+            oldStatus: shipment[0].status,
+            newStatus: shipment[0].status,
+            notes: `OVERDUE: Past estimated delivery date (${eta.toLocaleDateString("en-NG")}). ${input.notes || "Auto-flagged by system."}`,
+            createdBy: ctx.user?.id ?? 0,
+            actorRole: ctx.user?.role ?? "system",
+          });
+          return { flagged: 1 };
+        }
+        return { flagged: 0 };
+      }
+
+      // Otherwise scan all active shipments with ETA
+      const results = await db.select().from(shipments).where(and(
+        inArray(shipments.status, activeStatuses as any),
+        sql`${shipments.estimatedDeliveryDate} IS NOT NULL`
+      ));
+
+      let flagged = 0;
+      for (const s of results) {
+        const eta = new Date(s.estimatedDeliveryDate!);
+        if (eta.getTime() - now.getTime() < 0) {
+          await db.insert(trackingEvents).values({
+            shipmentId: s.id,
+            eventType: "delay_reported",
+            oldStatus: s.status,
+            newStatus: s.status,
+            notes: `OVERDUE: Past estimated delivery date (${eta.toLocaleDateString("en-NG")}). Auto-flagged by system.`,
+            createdBy: ctx.user?.id ?? 0,
+            actorRole: ctx.user?.role ?? "system",
+          });
+          flagged++;
+        }
+      }
+      return { flagged };
+    }),
 
   // ── DRIVER DELIVERIES ──
   myDeliveries: driverQuery

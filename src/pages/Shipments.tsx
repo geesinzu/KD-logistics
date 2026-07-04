@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { Plus, Search, QrCode, Truck } from "lucide-react";
+import { Plus, Search, QrCode, Truck, Clock, AlertTriangle } from "lucide-react";
 
 export default function Shipments() {
   const navigate = useNavigate();
@@ -16,7 +16,7 @@ export default function Shipments() {
   const [search, setSearch] = useState("");
   const [status, setStatus] = useState("");
 
-  const canCreate = role && ["super_admin", "admin", "shipment_creator"].includes(role);
+  const canCreate = role && ["super_admin", "admin", "shipment_creator", "logistics_officer"].includes(role);
   const canWarehouse = role && ["super_admin", "admin", "warehouse_supply"].includes(role);
   const canLogistics = role && ["super_admin", "admin", "logistics_officer"].includes(role);
 
@@ -66,6 +66,24 @@ export default function Shipments() {
                   </div>
                   <p className="text-[11px] text-gray-500">To: {s.destinationBranch}</p>
                   <p className="text-[11px] text-gray-500">{s.actualItemCount || s.estimatedItemCount || 0} items {s.receiverName ? `- ${s.receiverName}` : ""}</p>
+                  {s.slaStatus && s.slaStatus !== "no_eta" && (
+                    <div className={`flex items-center gap-1 text-[10px] mt-0.5 font-medium ${
+                      s.slaStatus === "overdue" ? "text-red-600" :
+                      s.slaStatus === "due_soon" ? "text-amber-600" :
+                      "text-green-600"
+                    }`}>
+                      {s.slaStatus === "overdue" && <AlertTriangle size={10} />}
+                      {s.slaStatus === "due_soon" && <Clock size={10} />}
+                      {s.slaStatus === "overdue" ? `Overdue by ${Math.abs(s.daysUntilEta ?? 0)} day(s)` :
+                       s.slaStatus === "due_soon" ? `Due within 24h` :
+                       `${s.daysUntilEta} day(s) until delivery`}
+                    </div>
+                  )}
+                  {s.estimatedDeliveryDate && (
+                    <p className="text-[10px] text-gray-400">
+                      ETA: {new Date(s.estimatedDeliveryDate).toLocaleDateString("en-NG", { weekday: "short", month: "short", day: "numeric" })}
+                    </p>
+                  )}
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   {s.status === "created" && canWarehouse && (
