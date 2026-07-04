@@ -19,6 +19,7 @@ export default function Shipments() {
   const canCreate = role && ["super_admin", "admin", "shipment_creator", "logistics_officer"].includes(role);
   const canWarehouse = role && ["super_admin", "admin", "warehouse_supply"].includes(role);
   const canLogistics = role && ["super_admin", "admin", "logistics_officer"].includes(role);
+  const isViewer = role === "viewer";
 
   const { data, isLoading } = trpc.shipment.list.useQuery({ page: 1, limit: 50, status: status || undefined, search: search || undefined });
 

@@ -77,3 +77,4 @@ export const warehouseQuery = kediQuery.use(requireRoles(["super_admin", "admin"
 export const logisticsQuery = kediQuery.use(requireRoles(["super_admin", "admin", "logistics_officer"]));
 export const driverQuery = kediQuery.use(requireRoles(["super_admin", "admin", "driver"]));
 export const branchManagerQuery = kediQuery.use(requireRoles(["super_admin", "admin", "branch_manager"]));
+export const viewerQuery = kediQuery.use(requireRoles(["super_admin", "admin", "branch_manager", "logistics_officer", "shipment_creator", "driver", "warehouse_supply", "viewer"]));
