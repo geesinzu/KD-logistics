@@ -85,30 +85,4 @@ export const pushRouter = createRouter({
       await db.delete(pushSubscriptions).where(eq(pushSubscriptions.tplUserId, ctx.tplUser!.id));
       return { success: true };
     }),
-
-  // Diagnostic: send a test push to the current user
-  sendTest: authedQuery
-    .mutation(async ({ ctx }) => {
-      const userId = ctx.user!.id;
-      await sendPushToUser(userId, {
-        title: "🔔 Test Notification",
-        body: `Hello ${ctx.user!.name}! If you see this, push notifications are working correctly on this device.`,
-        tag: "test",
-        url: "/profile",
-      });
-      return { success: true, message: "Test notification sent. Check your device." };
-    }),
-
-  // Diagnostic: list my subscriptions
-  mySubscriptions: authedQuery
-    .query(async ({ ctx }) => {
-      const db = getDb();
-      const subs = await db.select({
-        id: pushSubscriptions.id,
-        endpoint: pushSubscriptions.endpoint,
-        userAgent: pushSubscriptions.userAgent,
-        createdAt: pushSubscriptions.createdAt,
-      }).from(pushSubscriptions).where(eq(pushSubscriptions.userId, ctx.user!.id));
-      return { count: subs.length, subscriptions: subs };
-    }),
 });
