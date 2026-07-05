@@ -10,22 +10,44 @@ self.skipWaiting();
 clientsClaim();
 
 // Push event - show notification
+// CRITICAL: Must ALWAYS call showNotification(), even on error.
+// Android falls back to generic Chrome card if we don't.
 self.addEventListener("push", (event) => {
+  let title = "KEDI Logistics";
+  let body = "You have a new notification";
+  let tag = "default";
+  let url = "/";
+
   try {
-    const data = event.data?.json() || {};
-    const title = data.title || "KEDI Logistics";
-    const options = {
-      body: data.body || "You have a new notification",
-      icon: "/icons/icon-192x192.png",
-      badge: "/icons/icon-96x96.png",
-      tag: data.tag || "default",
-      requireInteraction: true,
-      data: { url: data.url || "/" },
-    };
-    event.waitUntil(self.registration.showNotification(title, options));
+    if (event.data) {
+      const data = event.data.json();
+      title = data.title || title;
+      body = data.body || body;
+      tag = data.tag || tag;
+      url = data.url || url;
+    }
   } catch (err) {
-    console.error("Push handling error:", err);
+    console.error("[SW] Push data parse error:", err);
+    // Continue with defaults — we MUST show a notification
   }
+
+  const options = {
+    body,
+    icon: "/icons/icon-192x192.png",
+    badge: "/icons/icon-96x96.png",
+    tag,
+    requireInteraction: false,  // false = auto-dismiss after a while (better UX)
+    renotify: true,             // Play sound even if same tag
+    silent: false,              // Ensure sound plays
+    data: { url },
+  };
+
+  // Always waitUntil — required for Android to not show generic fallback
+  event.waitUntil(
+    self.registration.showNotification(title, options).catch((err) => {
+      console.error("[SW] showNotification failed:", err);
+    })
+  );
 });
 
 // Notification click - open the app
