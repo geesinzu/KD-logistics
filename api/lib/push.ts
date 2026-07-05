@@ -35,11 +35,20 @@ export async function sendPushToUser(userId: number, payload: PushPayload): Prom
   console.log(`[Push] User ${userId}: ${subs.length} subscription(s). Sending: "${payload.title}"`);
   for (const sub of subs) {
     try {
+      // Send with urgency headers for immediate delivery
       await webPush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        JSON.stringify(payload)
+        JSON.stringify(payload),
+        {
+          TTL: 60,                          // Deliver within 60 seconds or drop
+          urgency: "high",                  // Tell FCM/APNS this is urgent
+          topic: payload.tag || "kedi",     // Topic for routing
+          headers: {
+            "Priority": "high",             // HTTP/2 priority header
+          },
+        }
       );
-      console.log(`[Push] ✅ Sent to ${sub.endpoint.substring(0, 40)}...`);
+      console.log(`[Push] ✅ Sent (urgency=high) to ${sub.endpoint.substring(0, 40)}...`);
     } catch (err: any) {
       console.error(`[Push] ❌ Failed (${err.statusCode}): ${sub.endpoint.substring(0, 40)}...`);
       if (err.statusCode === 410 || err.statusCode === 404) {
@@ -58,9 +67,15 @@ export async function sendPushToTplUser(tplUserId: number, payload: PushPayload)
     try {
       await webPush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        JSON.stringify(payload)
+        JSON.stringify(payload),
+        {
+          TTL: 60,
+          urgency: "high",
+          topic: payload.tag || "kedi",
+          headers: { "Priority": "high" },
+        }
       );
-      console.log(`[Push] ✅ Sent to ${sub.endpoint.substring(0, 40)}...`);
+      console.log(`[Push] ✅ Sent (urgency=high) to ${sub.endpoint.substring(0, 40)}...`);
     } catch (err: any) {
       console.error(`[Push] ❌ Failed (${err.statusCode}): ${sub.endpoint.substring(0, 40)}...`);
       if (err.statusCode === 410 || err.statusCode === 404) {
