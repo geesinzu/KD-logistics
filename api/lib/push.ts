@@ -40,7 +40,7 @@ export async function sendPushToUser(userId: number, payload: PushPayload): Prom
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
         JSON.stringify(payload),
         {
-          TTL: 60,                          // Deliver within 60 seconds or drop
+          TTL: 300,                        // Deliver within 5 minutes (gives iOS time)
           urgency: "high",                  // Tell FCM/APNS this is urgent
           topic: payload.tag || "kedi",     // Topic for routing
           headers: {
@@ -128,7 +128,7 @@ export async function notifyShipmentCreated(shipmentId: number, destBranchId: nu
   await sendPushToUser(createdBy, {
     title: "Shipment Created",
     body: `Your shipment (${trackingId}) to ${branchName} has been logged.`,
-    tag: `shipment-${shipmentId}`,
+    tag: `shipment-${shipmentId}-${Date.now()}`,
     url: `/shipments/${shipmentId}`,
   });
 
@@ -136,7 +136,7 @@ export async function notifyShipmentCreated(shipmentId: number, destBranchId: nu
   await notifyOpsTeam({
     title: "New Shipment Created",
     body: `Shipment ${trackingId} heading to ${branchName}. Waiting for warehouse processing.`,
-    tag: `shipment-${shipmentId}`,
+    tag: `shipment-${shipmentId}-${Date.now()}`,
     url: `/shipments/${shipmentId}`,
   });
 
@@ -144,7 +144,7 @@ export async function notifyShipmentCreated(shipmentId: number, destBranchId: nu
   await sendPushToRoles(["warehouse_supply"], {
     title: "Warehouse: New Shipment",
     body: `Shipment ${trackingId} to ${branchName} needs items input and labeling.`,
-    tag: `shipment-${shipmentId}`,
+    tag: `shipment-${shipmentId}-${Date.now()}`,
     url: `/shipments/${shipmentId}`,
   });
 
@@ -155,7 +155,7 @@ export async function notifyShipmentCreated(shipmentId: number, destBranchId: nu
     await sendPushToUser(m.id, {
       title: "Incoming Shipment",
       body: `A shipment (${trackingId}) is heading to your branch (${branchName}).`,
-      tag: `shipment-${shipmentId}`,
+      tag: `shipment-${shipmentId}-${Date.now()}`,
       url: `/shipments/${shipmentId}`,
     });
   }
@@ -170,7 +170,7 @@ export async function notifyWarehouseProcessed(shipmentId: number, destBranchId:
   await notifyOpsTeam({
     title: "Warehouse Processed",
     body: `Shipment ${trackingId} to ${branchName} is labeled and ready for 3PL assignment.`,
-    tag: `shipment-${shipmentId}`,
+    tag: `shipment-${shipmentId}-${Date.now()}`,
     url: `/shipments/${shipmentId}`,
   });
 }
@@ -188,7 +188,7 @@ export async function notify3plAssigned(shipmentId: number, tplId: number, track
   await sendPushTo3plCompany(tplId, {
     title: "New Job Assigned",
     body: `Pickup shipment ${trackingId} from Lagos HQ for delivery to ${branchName}.`,
-    tag: `shipment-${shipmentId}`,
+    tag: `shipment-${shipmentId}-${Date.now()}`,
     url: `/shipments/${shipmentId}`,
   });
 
@@ -196,7 +196,7 @@ export async function notify3plAssigned(shipmentId: number, tplId: number, track
   await notifyOpsTeam({
     title: "3PL Assigned",
     body: `${tplName} assigned to shipment ${trackingId} → ${branchName}.`,
-    tag: `shipment-${shipmentId}`,
+    tag: `shipment-${shipmentId}-${Date.now()}`,
     url: `/shipments/${shipmentId}`,
   });
 }
@@ -221,7 +221,7 @@ export async function notify3plStatusUpdate(shipmentId: number, tplId: number, t
   await notifyOpsTeam({
     title: "3PL Update",
     body: `${tplName} ${actionText} for shipment ${trackingId}.`,
-    tag: `shipment-${shipmentId}`,
+    tag: `shipment-${shipmentId}-${Date.now()}`,
     url: `/shipments/${shipmentId}`,
   });
 }
@@ -239,7 +239,7 @@ export async function notifyShipmentDelivered(shipmentId: number, destBranchId: 
     await sendPushToUser(m.id, {
       title: "Shipment Delivered",
       body: `Shipment ${trackingId} has been delivered to ${branchName}. Please acknowledge receipt.`,
-      tag: `shipment-${shipmentId}`,
+      tag: `shipment-${shipmentId}-${Date.now()}`,
       url: `/shipments/${shipmentId}`,
     });
   }
@@ -248,7 +248,7 @@ export async function notifyShipmentDelivered(shipmentId: number, destBranchId: 
   await notifyOpsTeam({
     title: "Shipment Delivered",
     body: `Shipment ${trackingId} delivered to ${branchName}. Waiting for BM acknowledgement.`,
-    tag: `shipment-${shipmentId}`,
+    tag: `shipment-${shipmentId}-${Date.now()}`,
     url: `/shipments/${shipmentId}`,
   });
 }
@@ -266,7 +266,7 @@ export async function notifyShipmentCompleted(shipmentId: number, destBranchId: 
     await sendPushToUser(m.id, {
       title: "Shipment Completed",
       body: `Shipment ${trackingId} to ${branchName} is fully completed.`,
-      tag: `shipment-${shipmentId}`,
+      tag: `shipment-${shipmentId}-${Date.now()}`,
       url: `/shipments/${shipmentId}`,
     });
   }
@@ -274,7 +274,7 @@ export async function notifyShipmentCompleted(shipmentId: number, destBranchId: 
   await notifyOpsTeam({
     title: "Shipment Completed",
     body: `Shipment ${trackingId} to ${branchName} is fully completed.`,
-    tag: `shipment-${shipmentId}`,
+    tag: `shipment-${shipmentId}-${Date.now()}`,
     url: `/shipments/${shipmentId}`,
   });
 }
@@ -288,7 +288,7 @@ export async function notifyShipmentOverdue(shipmentId: number, destBranchId: nu
   await notifyOpsTeam({
     title: "⚠️ Shipment Overdue",
     body: `Shipment ${trackingId} to ${branchName} is ${daysOverdue} day(s) overdue!`,
-    tag: `shipment-${shipmentId}`,
+    tag: `shipment-${shipmentId}-${Date.now()}`,
     url: `/shipments/${shipmentId}`,
   });
 }

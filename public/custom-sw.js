@@ -35,10 +35,11 @@ self.addEventListener("push", (event) => {
     body,
     icon: "/icons/icon-192x192.png",
     badge: "/icons/icon-96x96.png",
-    tag,
-    requireInteraction: false,  // false = auto-dismiss after a while (better UX)
-    renotify: true,             // Play sound even if same tag
-    silent: false,              // Ensure sound plays
+    tag,                          // Unique tag per event (shipment-id-eventType-timestamp)
+    requireInteraction: false,    // Auto-dismiss after a while (better UX)
+    renotify: true,              // Always play sound/vibrate
+    silent: false,               // Ensure sound plays
+    vibrate: [200, 100, 200],    // Vibration pattern for mobile
     data: { url },
   };
 
