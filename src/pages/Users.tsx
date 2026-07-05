@@ -8,6 +8,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { ROLE_LABELS, KEDI_ROLES } from "@contracts/constants";
+import { toast } from "sonner";
 import { Search, UserPlus, Truck, Trash2 } from "lucide-react";
 
 export default function Users() {
@@ -33,7 +34,8 @@ export default function Users() {
     onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); },
   });
   const createUserMutation = trpc.user.create.useMutation({
-    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); setShowAdd(false); setNewUser({ name: "", phone: "", role: "driver", password: "", branchId: "19" }); },
+    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); setShowAdd(false); setNewUser({ name: "", phone: "", role: "driver", password: "", branchId: "19" }); toast.success("User created successfully"); },
+    onError: (err) => { toast.error(err.message || "Failed to create user"); },
   });
   const create3plUserMutation = trpc.tpl.createUser.useMutation({
     onSuccess: () => { utils.tpl.listUsers.invalidate(); setShowAdd3pl(false); setNew3pl({ name: "", phone: "", password: "", tplId: "" }); },
