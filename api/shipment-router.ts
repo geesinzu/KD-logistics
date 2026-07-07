@@ -685,6 +685,10 @@ export const shipmentRouter = createRouter({
     if (ctx.user?.role === "driver") {
       filtered = allShipments.filter(s => s.assignedDriverId === ctx.user!.id);
     }
+    // Branch managers only see shipments to their branch
+    if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
+      filtered = allShipments.filter(s => s.destBranchId === ctx.user!.branchId);
+    }
     return {
       total: filtered.length,
       created: filtered.filter(s => s.status === "created").length,
