@@ -50,6 +50,24 @@ export default function Shipments() {
   const apiStatus = status ? STATUS_GROUPS[status] : undefined;
   const { data, isLoading } = trpc.shipment.list.useQuery({ page: 1, limit: 50, status: apiStatus, search: search || undefined });
 
+  // Fetch ALL shipments for tab counts (only when no search filter)
+  const { data: allData } = trpc.shipment.list.useQuery(
+    { page: 1, limit: 200, search: undefined },
+    { enabled: !search } // Only fetch when not searching
+  );
+
+  // Compute counts per tab from all shipments
+  const tabCounts: Record<string, number> = {};
+  const allShipments = allData?.shipments || [];
+  for (const key of tabKeys) {
+    if (key === "") {
+      tabCounts[key] = allShipments.length;
+    } else {
+      const statuses = STATUS_GROUPS[key].split(",").filter(Boolean);
+      tabCounts[key] = allShipments.filter((s: any) => statuses.includes(s.status)).length;
+    }
+  }
+
   return (
     <div className="p-4 max-w-lg mx-auto">
       <div className="flex items-center justify-between mb-3">
@@ -67,12 +85,15 @@ export default function Shipments() {
         <Input className="pl-9 h-10" placeholder="Search by tracking ID..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
-      {/* Status filter tabs */}
+      {/* Status filter tabs with counts */}
       <div className="flex gap-1 overflow-x-auto pb-2 mb-3 scrollbar-hide">
         {tabKeys.map(key => (
           <button key={key} onClick={() => setStatus(key)}
-            className={`px-3 py-1 rounded-full text-[10px] whitespace-nowrap font-medium transition-colors ${status === key ? "bg-[#003B7A] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            className={`px-3 py-1 rounded-full text-[10px] whitespace-nowrap font-medium transition-colors inline-flex items-center gap-1 ${status === key ? "bg-[#003B7A] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
             {TAB_LABELS[key] || "All"}
+            <span className={`text-[9px] px-1 py-0.5 rounded-full ${status === key ? "bg-white/20 text-white" : "bg-gray-200 text-gray-500"}`}>
+              {tabCounts[key] ?? 0}
+            </span>
           </button>
         ))}
       </div>
