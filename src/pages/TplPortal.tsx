@@ -35,12 +35,15 @@ export default function TplPortal() {
 
   const confirmMutation = trpc.shipment.tplConfirmReceipt.useMutation({
     onSuccess: () => { utils.shipment.listForTpl.invalidate(); closeDialog(); },
+    onError: (err) => alert("Error: " + err.message),
   });
   const pickupMutation = trpc.shipment.tplPickupFromWarehouse.useMutation({
     onSuccess: () => { utils.shipment.listForTpl.invalidate(); closeDialog(); },
+    onError: (err) => alert("Error: " + err.message),
   });
   const updateMutation = trpc.shipment.tplUpdateLocation.useMutation({
     onSuccess: () => { utils.shipment.listForTpl.invalidate(); closeDialog(); },
+    onError: (err) => alert("Error: " + err.message),
   });
   const updateDeliveryDateMutation = trpc.shipment.tplUpdateDeliveryDate.useMutation({
     onSuccess: () => { utils.shipment.listForTpl.invalidate(); },
@@ -93,8 +96,10 @@ export default function TplPortal() {
   const doneStatuses = ["delivered", "completed"];
 
   const filtered = myShipments.filter((s: any) => {
-    if (filter === "needs_action") return ["at_3pl", "picked_up_by_3pl"].includes(s.status);
-    if (filter === "active") return activeStatuses.includes(s.status) && !["at_3pl", "picked_up_by_3pl"].includes(s.status);
+    // Needs Action: shipments requiring 3PL to do something (confirm receipt OR pickup)
+    if (filter === "needs_action") return ["at_3pl", "picked_up_by_3pl", "waiting_3pl_pickup"].includes(s.status);
+    // In Transit: active shipments NOT needing immediate action
+    if (filter === "active") return activeStatuses.includes(s.status) && !["at_3pl", "picked_up_by_3pl", "waiting_3pl_pickup"].includes(s.status);
     if (filter === "done") return doneStatuses.includes(s.status);
     return true;
   });
@@ -248,6 +253,7 @@ export default function TplPortal() {
                 if (!selectedShipment || !receivedQty) return;
                 pickupMutation.mutate({
                   shipmentId: selectedShipment.id,
+                  receivedQty: Number(receivedQty),
                   notes: notes || `Picked up ${receivedQty} items from warehouse`,
                 });
               }} disabled={pickupMutation.isPending || !receivedQty}>
