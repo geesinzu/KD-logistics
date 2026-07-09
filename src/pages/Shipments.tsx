@@ -21,9 +21,6 @@ export default function Shipments() {
   const canLogistics = role && ["super_admin", "admin", "logistics_officer"].includes(role);
   const isViewer = role === "viewer";
 
-  const apiStatus = status ? STATUS_GROUPS[status] : undefined;
-  const { data, isLoading } = trpc.shipment.list.useQuery({ page: 1, limit: 50, status: apiStatus, search: search || undefined });
-
   // Status group mapping: tab label → comma-separated DB statuses
   const STATUS_GROUPS: Record<string, string> = {
     "": "",
@@ -48,6 +45,10 @@ export default function Shipments() {
     "cancelled": "Cancelled",
   };
   const tabKeys = Object.keys(STATUS_GROUPS);
+
+  // Must be AFTER STATUS_GROUPS definition
+  const apiStatus = status ? STATUS_GROUPS[status] : undefined;
+  const { data, isLoading } = trpc.shipment.list.useQuery({ page: 1, limit: 50, status: apiStatus, search: search || undefined });
 
   return (
     <div className="p-4 max-w-lg mx-auto">
