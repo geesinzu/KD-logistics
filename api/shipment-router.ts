@@ -478,7 +478,15 @@ export const shipmentRouter = createRouter({
       const offset = (page - 1) * limit;
 
       const conditions = [];
-      if (input?.status) conditions.push(eq(shipments.status, input.status as any));
+      // Support status groups (comma-separated for multiple statuses)
+      if (input?.status) {
+        const statuses = input.status.split(",").map(s => s.trim()).filter(Boolean);
+        if (statuses.length === 1) {
+          conditions.push(eq(shipments.status, statuses[0] as any));
+        } else if (statuses.length > 1) {
+          conditions.push(inArray(shipments.status, statuses as any));
+        }
+      }
       if (input?.tplId) conditions.push(eq(shipments.tplId, input.tplId));
 
       if (ctx.user?.role === "driver") {
@@ -562,7 +570,14 @@ export const shipmentRouter = createRouter({
       }
 
       const conditions = [];
-      if (input?.status) conditions.push(eq(shipments.status, input.status as any));
+      if (input?.status) {
+        const statuses = input.status.split(",").map(s => s.trim()).filter(Boolean);
+        if (statuses.length === 1) {
+          conditions.push(eq(shipments.status, statuses[0] as any));
+        } else if (statuses.length > 1) {
+          conditions.push(inArray(shipments.status, statuses as any));
+        }
+      }
 
       // TPL users only see their own shipments
       if (ctx.tplUser) {

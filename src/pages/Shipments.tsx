@@ -21,9 +21,33 @@ export default function Shipments() {
   const canLogistics = role && ["super_admin", "admin", "logistics_officer"].includes(role);
   const isViewer = role === "viewer";
 
-  const { data, isLoading } = trpc.shipment.list.useQuery({ page: 1, limit: 50, status: status || undefined, search: search || undefined });
+  const apiStatus = status ? STATUS_GROUPS[status] : undefined;
+  const { data, isLoading } = trpc.shipment.list.useQuery({ page: 1, limit: 50, status: apiStatus, search: search || undefined });
 
-  const statusFilters = ["", "created", "labeled", "assigned_to_3pl", "picked_up", "in_transit_with_3pl", "delivered", "completed", "cancelled"];
+  // Status group mapping: tab label → comma-separated DB statuses
+  const STATUS_GROUPS: Record<string, string> = {
+    "": "",
+    "created": "created",
+    "labeled": "labeled",
+    "assigned_to_3pl": "waiting_driver_pickup,waiting_3pl_pickup,at_3pl",
+    "picked_up": "picked_up,picked_up_by_3pl",
+    "in_transit_with_3pl": "tpl_confirmed,in_transit_with_3pl,partially_delivered",
+    "delivered": "delivered",
+    "completed": "completed",
+    "cancelled": "cancelled",
+  };
+  const TAB_LABELS: Record<string, string> = {
+    "": "All",
+    "created": "Created",
+    "labeled": "Labeled",
+    "assigned_to_3pl": "Assigned to 3PL",
+    "picked_up": "Picked Up",
+    "in_transit_with_3pl": "In Transit",
+    "delivered": "Delivered",
+    "completed": "Completed",
+    "cancelled": "Cancelled",
+  };
+  const tabKeys = Object.keys(STATUS_GROUPS);
 
   return (
     <div className="p-4 max-w-lg mx-auto">
@@ -44,10 +68,10 @@ export default function Shipments() {
 
       {/* Status filter tabs */}
       <div className="flex gap-1 overflow-x-auto pb-2 mb-3 scrollbar-hide">
-        {statusFilters.map(s => (
-          <button key={s} onClick={() => setStatus(s)}
-            className={`px-3 py-1 rounded-full text-[10px] whitespace-nowrap font-medium transition-colors ${status === s ? "bg-[#003B7A] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
-            {s ? STATUS_LABELS[s] || s : "All"}
+        {tabKeys.map(key => (
+          <button key={key} onClick={() => setStatus(key)}
+            className={`px-3 py-1 rounded-full text-[10px] whitespace-nowrap font-medium transition-colors ${status === key ? "bg-[#003B7A] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            {TAB_LABELS[key] || "All"}
           </button>
         ))}
       </div>
