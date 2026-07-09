@@ -14,7 +14,7 @@ import { Truck, LogOut, MapPin, Package, CheckCircle2, Clock, ChevronDown, Chevr
 export default function TplPortal() {
   const [filter, setFilter] = useState("all");
   const [selectedShipment, setSelectedShipment] = useState<any>(null);
-  const [actionType, setActionType] = useState<"confirm" | "update" | null>(null);
+  const [actionType, setActionType] = useState<"confirm" | "update" | "pickup" | null>(null);
   const [updateType, setUpdateType] = useState("");
   const [location, setLocation] = useState("");
   const [deliveredQty, setDeliveredQty] = useState("");
@@ -34,6 +34,9 @@ export default function TplPortal() {
   );
 
   const confirmMutation = trpc.shipment.tplConfirmReceipt.useMutation({
+    onSuccess: () => { utils.shipment.listForTpl.invalidate(); closeDialog(); },
+  });
+  const pickupMutation = trpc.shipment.tplPickupFromWarehouse.useMutation({
     onSuccess: () => { utils.shipment.listForTpl.invalidate(); closeDialog(); },
   });
   const updateMutation = trpc.shipment.tplUpdateLocation.useMutation({
@@ -98,6 +101,7 @@ export default function TplPortal() {
 
   // What action button to show per status
   function getActionLabel(status: string): string | null {
+    if (["waiting_3pl_pickup"].includes(status)) return "Pickup from Warehouse";
     if (["at_3pl", "picked_up_by_3pl"].includes(status)) return "Confirm Receipt";
     if (["tpl_confirmed", "in_transit_with_3pl", "partially_delivered"].includes(status)) return "Update Status";
     return null;
@@ -146,15 +150,17 @@ export default function TplPortal() {
         <div className="space-y-2">
           {filtered.map((s: any) => {
             const needsReceipt = ["at_3pl", "picked_up_by_3pl"].includes(s.status);
+            const needsPickup = s.status === "waiting_3pl_pickup";
             const actionLabel = getActionLabel(s.status);
             return (
-              <Card key={s.id} className={`border-0 shadow-sm ${needsReceipt ? "ring-1 ring-red-200" : ""}`}>
+              <Card key={s.id} className={`border-0 shadow-sm ${needsReceipt ? "ring-1 ring-red-200" : needsPickup ? "ring-1 ring-blue-200" : ""}`}>
                 <CardContent className="p-3">
                   {/* Row 1: ID + Status */}
                   <div className="flex items-center justify-between mb-1">
                     <span className="text-sm font-semibold text-[#003B7A]">{s.trackingId || `#${s.id}`}</span>
                     <div className="flex items-center gap-1">
                       {needsReceipt && <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-medium">CONFIRM RECEIPT</span>}
+                      {needsPickup && <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">PICKUP REQUIRED</span>}
                       <Badge className={`text-[9px] ${STATUS_COLORS[s.status] || ""}`}>{STATUS_LABELS[s.status] || s.status}</Badge>
                     </div>
                   </div>
@@ -177,9 +183,15 @@ export default function TplPortal() {
                   {/* Row 3: Action + Expand */}
                   <div className="flex gap-2">
                     {actionLabel && (
-                      <Button size="sm" className={`flex-1 h-8 text-xs ${needsReceipt ? "bg-red-600 hover:bg-red-700" : "bg-indigo-600 hover:bg-indigo-700"}`}
-                        onClick={() => { setSelectedShipment(s); setActionType(needsReceipt ? "confirm" : "update"); }}>
-                        {needsReceipt ? <CheckCircle2 size={12} className="mr-1" /> : <MapPin size={12} className="mr-1" />}
+                      <Button size="sm" className={`flex-1 h-8 text-xs ${
+                        needsReceipt ? "bg-red-600 hover:bg-red-700" :
+                        needsPickup ? "bg-blue-600 hover:bg-blue-700" :
+                        "bg-indigo-600 hover:bg-indigo-700"
+                      }`}
+                        onClick={() => { setSelectedShipment(s); setActionType(needsReceipt ? "confirm" : needsPickup ? "pickup" : "update"); }}>
+                        {needsReceipt ? <CheckCircle2 size={12} className="mr-1" /> :
+                         needsPickup ? <Truck size={12} className="mr-1" /> :
+                         <MapPin size={12} className="mr-1" />}
                         {actionLabel}
                       </Button>
                     )}
@@ -217,6 +229,34 @@ export default function TplPortal() {
           })}
         </div>
       </div>
+
+      {/* Pickup from Warehouse Dialog */}
+      {selectedShipment && actionType === "pickup" && (
+        <Dialog open={!!selectedShipment} onOpenChange={() => closeDialog()}>
+          <DialogContent className="max-w-sm">
+            <DialogHeader><DialogTitle>Pickup from Warehouse: {selectedShipment.trackingId}</DialogTitle></DialogHeader>
+            <div className="space-y-3">
+              <div className="bg-blue-50 p-2 rounded text-xs text-blue-800">
+                <strong>Pickup:</strong> {selectedShipment.actualItemCount || 0} items from Lagos HQ for delivery to {selectedShipment.destinationBranch}
+              </div>
+              <div>
+                <Label>Quantity Picked Up *</Label>
+                <Input type="number" value={receivedQty} onChange={e => setReceivedQty(e.target.value)} placeholder="How many items picked up?" />
+              </div>
+              <div><Label>Notes</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any observations..." /></div>
+              <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => {
+                if (!selectedShipment || !receivedQty) return;
+                pickupMutation.mutate({
+                  shipmentId: selectedShipment.id,
+                  notes: notes || `Picked up ${receivedQty} items from warehouse`,
+                });
+              }} disabled={pickupMutation.isPending || !receivedQty}>
+                {pickupMutation.isPending ? "Confirming Pickup..." : "Confirm Pickup from Warehouse"}
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* Confirm Receipt Dialog */}
       {selectedShipment && actionType === "confirm" && (
