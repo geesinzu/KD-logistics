@@ -6,7 +6,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, QrCode, Printer } from "lucide-react";
+import { ArrowLeft, QrCode, Printer, FileText } from "lucide-react";
+import { PrintLabel } from "@/components/PrintLabel";
 
 export default function WarehouseProcess() {
   const { id } = useParams<{ id: string }>();
@@ -16,6 +17,7 @@ export default function WarehouseProcess() {
   const [storageLocation, setStorageLocation] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ trackingId: string; qrToken: string } | null>(null);
+  const [showPrint, setShowPrint] = useState(false);
 
   const utils = trpc.useUtils();
   const { data: shipment } = trpc.shipment.getById.useQuery({ id: Number(id) });
@@ -47,6 +49,21 @@ export default function WarehouseProcess() {
 
   // Show result after processing
   if (result) {
+    if (showPrint) {
+      return (
+        <div className="max-w-lg mx-auto p-4">
+          <PrintLabel
+            trackingId={result.trackingId}
+            destinationBranch={shipment.destinationBranch}
+            receiverName={shipment.receiverName}
+            actualItemCount={actualItemCount}
+            itemDetails={itemDetails}
+            onClose={() => setShowPrint(false)}
+          />
+        </div>
+      );
+    }
+
     return (
       <div className="max-w-lg mx-auto p-4">
         <div className="bg-green-50 border border-green-200 rounded-xl p-6 text-center mb-4">
@@ -70,8 +87,14 @@ export default function WarehouseProcess() {
               </div>
             </CardContent>
           </Card>
-          <Button className="mt-4 w-full h-12 bg-[#003B7A] hover:bg-[#002B5A]" onClick={() => navigate("/shipments")}>
-            <Printer size={16} className="mr-2" /> Done - Back to Shipments
+
+          {/* Print Label Button */}
+          <Button className="mt-4 w-full h-12 bg-[#003B7A] hover:bg-[#002B5A]" onClick={() => setShowPrint(true)}>
+            <FileText size={16} className="mr-2" /> Print Shipment Label
+          </Button>
+
+          <Button variant="outline" className="mt-2 w-full h-10" onClick={() => navigate("/shipments")}>
+            Done - Back to Shipments
           </Button>
         </div>
       </div>
