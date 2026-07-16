@@ -21,7 +21,10 @@ export default function WarehouseProcess() {
   const [showPrint, setShowPrint] = useState(false);
 
   const utils = trpc.useUtils();
-  const { data: shipment } = trpc.shipment.getById.useQuery({ id: Number(id) });
+  const { data: shipment } = trpc.shipment.getById.useQuery(
+    { id: Number(id) },
+    { refetchOnMount: true, staleTime: 0 }
+  );
 
   const processMutation = trpc.shipment.warehouseProcess.useMutation({
     onSuccess: (data) => {

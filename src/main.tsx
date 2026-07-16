@@ -21,8 +21,11 @@ const updateSW = registerSW({
   },
   onNeedRefresh() {
     console.log("[PWA] New version available - activating...")
-    // Skip waiting and activate new service worker immediately
-    updateSW(true)
+    // Activate new service worker and reload page to use new code
+    updateSW(true).then(() => {
+      console.log("[PWA] Reloading page to load new version...")
+      setTimeout(() => window.location.reload(), 500)
+    })
   },
   onOfflineReady() {
     console.log("[PWA] App ready for offline use")
