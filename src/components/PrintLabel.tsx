@@ -38,34 +38,37 @@ export function PrintLabel({
       <head>
         <title>Shipment Label - ${trackingId}</title>
         <style>
-          @page { size: A4 portrait; margin: 12mm; }
+          @page { size: A4 portrait; margin: 15mm; }
           * { box-sizing: border-box; margin: 0; padding: 0; }
           body { font-family: 'Segoe UI', Arial, sans-serif; background: white; color: #1E293B; }
-          .label-container { max-width: 210mm; margin: 0 auto; padding: 24px; }
-          .header { display: flex; align-items: center; gap: 20px; margin-bottom: 28px; padding-bottom: 18px; border-bottom: 4px solid #003B7A; }
-          .logo-box { width: 64px; height: 64px; background: #003B7A; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: 900; font-size: 28px; }
-          .header-text h1 { font-size: 28px; font-weight: 900; color: #003B7A; letter-spacing: -0.5px; }
-          .header-text p { font-size: 14px; color: #64748B; margin-top: 4px; font-weight: 600; }
-          .tracking-section { background: #F1F5F9; border-radius: 10px; padding: 20px; margin-bottom: 24px; text-align: center; }
-          .tracking-label { font-size: 14px; text-transform: uppercase; letter-spacing: 2px; color: #64748B; margin-bottom: 6px; font-weight: 700; }
-          .tracking-id { font-size: 42px; font-weight: 900; color: #003B7A; letter-spacing: 6px; font-family: 'Courier New', monospace; }
-          .barcode { margin: 10px auto; width: 320px; height: 70px; background: repeating-linear-gradient(90deg, #000 0px, #000 2px, #fff 2px, #fff 4px, #000 4px, #000 5px, #fff 5px, #fff 8px); }
-          .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-bottom: 24px; }
-          .detail-box { border: 2px solid #E2E8F0; border-radius: 8px; padding: 14px; }
-          .detail-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #94A3B8; margin-bottom: 6px; font-weight: 700; }
-          .detail-value { font-size: 18px; font-weight: 800; color: #1E293B; }
-          .items-box { border: 2px solid #E2E8F0; border-radius: 8px; padding: 14px; margin-bottom: 24px; }
-          .items-label { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #94A3B8; margin-bottom: 6px; font-weight: 700; }
-          .items-value { font-size: 15px; color: #334155; line-height: 1.6; font-weight: 600; }
-          .signature-section { margin-top: 28px; }
-          .sig-title { font-size: 14px; text-transform: uppercase; letter-spacing: 2px; color: #64748B; margin-bottom: 14px; font-weight: 800; }
-          .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
-          .sig-box { border: 2px solid #CBD5E1; border-radius: 8px; padding: 20px; }
-          .sig-header { font-size: 14px; font-weight: 800; color: #003B7A; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 2px solid #E2E8F0; }
-          .sig-field { margin-bottom: 20px; }
-          .sig-field-label { font-size: 12px; color: #94A3B8; text-transform: uppercase; margin-bottom: 6px; font-weight: 700; }
-          .sig-line { border-bottom: 2px solid #94A3B8; height: 36px; }
-          .footer { margin-top: 28px; padding-top: 14px; border-top: 2px solid #E2E8F0; text-align: center; font-size: 12px; color: #94A3B8; font-weight: 600; }
+          .label-container { max-width: 210mm; margin: 0 auto; padding: 20px; }
+          .header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 3px solid #003B7A; }
+          .logo-box { width: 56px; height: 56px; background: #003B7A; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 20px; }
+          .header-text h1 { font-size: 22px; font-weight: 800; color: #003B7A; letter-spacing: -0.5px; }
+          .header-text p { font-size: 11px; color: #64748B; margin-top: 2px; }
+          .tracking-section { background: #F1F5F9; border-radius: 8px; padding: 14px; margin-bottom: 16px; text-align: center; }
+          .tracking-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #64748B; margin-bottom: 4px; }
+          .tracking-id { font-size: 32px; font-weight: 800; color: #003B7A; letter-spacing: 4px; font-family: 'Courier New', monospace; }
+          .barcode { margin: 8px auto; width: 280px; height: 60px; background: repeating-linear-gradient(90deg, #000 0px, #000 2px, #fff 2px, #fff 4px, #000 4px, #000 5px, #fff 5px, #fff 8px); }
+          .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
+          .detail-box { border: 1.5px solid #E2E8F0; border-radius: 6px; padding: 12px; }
+          .detail-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #94A3B8; margin-bottom: 4px; font-weight: 700; }
+          /* BOLDER + SLIGHTLY BIGGER: From, To, Item Count, Weight */
+          .detail-value { font-size: 16px; font-weight: 800; color: #1E293B; }
+          .items-box { border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px; margin-bottom: 16px; }
+          .items-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #94A3B8; margin-bottom: 4px; font-weight: 700; }
+          .items-value { font-size: 12px; color: #334155; line-height: 1.5; }
+          .signature-section { margin-top: 20px; }
+          /* BOLDER + SLIGHTLY BIGGER: Acknowledgement title */
+          .sig-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #64748B; margin-bottom: 10px; font-weight: 800; }
+          .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+          .sig-box { border: 1.5px solid #CBD5E1; border-radius: 6px; padding: 14px; }
+          /* BOLDER + SLIGHTLY BIGGER: Released by Warehouse / Received by 3PL */
+          .sig-header { font-size: 13px; font-weight: 800; color: #003B7A; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1.5px solid #E2E8F0; }
+          .sig-field { margin-bottom: 14px; }
+          .sig-field-label { font-size: 9px; color: #94A3B8; text-transform: uppercase; margin-bottom: 4px; font-weight: 700; }
+          .sig-line { border-bottom: 1.5px solid #94A3B8; height: 28px; }
+          .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #E2E8F0; text-align: center; font-size: 9px; color: #94A3B8; }
           @media print {
             .no-print { display: none !important; }
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
