@@ -66,6 +66,9 @@ export default function ShipmentDetail() {
             <h3 className="text-xs font-semibold text-gray-500 uppercase">Shipment Details</h3>
             <div className="grid grid-cols-3 gap-3 text-center">
               <div className="bg-gray-50 rounded-lg p-2"><p className="text-lg font-bold">{shipment.actualItemCount || shipment.estimatedItemCount || 0}</p><p className="text-[10px] text-gray-500">Items</p></div>
+              {shipment.weightKg && (
+                <div className="bg-blue-50 rounded-lg p-2"><p className="text-lg font-bold text-blue-700">{shipment.weightKg}</p><p className="text-[10px] text-blue-500">Weight (kg)</p></div>
+              )}
               <div className="bg-gray-50 rounded-lg p-2"><p className="text-lg font-bold">{shipment.deliveredQty || 0}</p><p className="text-[10px] text-gray-500">Delivered</p></div>
               <div className="bg-gray-50 rounded-lg p-2"><p className="text-lg font-bold">{shipment.remainingQty || 0}</p><p className="text-[10px] text-gray-500">Remaining</p></div>
             </div>

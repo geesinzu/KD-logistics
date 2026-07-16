@@ -80,6 +80,7 @@ export const shipmentRouter = createRouter({
       actualItemCount: z.number().min(1),
       itemDetails: z.string(),
       storageLocation: z.string(),
+      weightKg: z.number().min(0.01, "Weight is required"),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
@@ -96,6 +97,7 @@ export const shipmentRouter = createRouter({
           actualItemCount: input.actualItemCount,
           itemDetails: input.itemDetails,
           storageLocation: input.storageLocation,
+          weightKg: String(input.weightKg),
           warehouseOfficerId: ctx.user.id,
           trackingId,
           qrCodeToken: qrToken,
@@ -109,7 +111,7 @@ export const shipmentRouter = createRouter({
         eventType: "items_input",
         oldStatus: "created",
         newStatus: "labeled",
-        notes: `${input.actualItemCount} items logged. Location: ${input.storageLocation}`,
+        notes: `${input.actualItemCount} items logged. Weight: ${input.weightKg}kg. Location: ${input.storageLocation}`,
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });

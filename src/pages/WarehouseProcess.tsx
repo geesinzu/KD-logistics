@@ -15,6 +15,7 @@ export default function WarehouseProcess() {
   const [actualItemCount, setActualItemCount] = useState("");
   const [itemDetails, setItemDetails] = useState("");
   const [storageLocation, setStorageLocation] = useState("");
+  const [weightKg, setWeightKg] = useState("");
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ trackingId: string; qrToken: string } | null>(null);
   const [showPrint, setShowPrint] = useState(false);
@@ -37,11 +38,13 @@ export default function WarehouseProcess() {
     if (!actualItemCount || Number(actualItemCount) < 1) { setError("Item count required"); return; }
     if (!itemDetails.trim()) { setError("Item details required"); return; }
     if (!storageLocation.trim()) { setError("Storage location required"); return; }
+    if (!weightKg || Number(weightKg) <= 0) { setError("Weight (kg) is required"); return; }
     processMutation.mutate({
       shipmentId: Number(id),
       actualItemCount: Number(actualItemCount),
       itemDetails,
       storageLocation,
+      weightKg: Number(weightKg),
     });
   };
 
@@ -57,6 +60,7 @@ export default function WarehouseProcess() {
             destinationBranch={shipment.destinationBranch}
             receiverName={shipment.receiverName}
             actualItemCount={actualItemCount}
+            weightKg={weightKg}
             itemDetails={itemDetails}
             onClose={() => setShowPrint(false)}
           />
@@ -129,6 +133,11 @@ export default function WarehouseProcess() {
           <div>
             <Label>Storage Location *</Label>
             <Input value={storageLocation} onChange={e => setStorageLocation(e.target.value)} placeholder="Warehouse A, Shelf 12" required />
+          </div>
+          <div>
+            <Label>Weight (kg) *</Label>
+            <Input type="number" step="0.01" min="0.01" value={weightKg} onChange={e => setWeightKg(e.target.value)} placeholder="e.g., 12.5" required />
+            <p className="text-[10px] text-gray-400 mt-0.5">Total shipment weight in kilograms</p>
           </div>
           {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</p>}
           <Button type="submit" className="w-full bg-[#003B7A] hover:bg-[#002B5A] h-12" disabled={processMutation.isPending}>

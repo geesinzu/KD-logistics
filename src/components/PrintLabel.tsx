@@ -7,6 +7,7 @@ interface PrintLabelProps {
   destinationBranch: string;
   receiverName?: string | null;
   actualItemCount: string | number;
+  weightKg?: string | number | null;
   itemDetails?: string;
   date?: string;
   onClose?: () => void;
@@ -17,6 +18,7 @@ export function PrintLabel({
   destinationBranch,
   receiverName,
   actualItemCount,
+  weightKg,
   itemDetails,
   date = new Date().toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" }),
   onClose,
@@ -122,6 +124,12 @@ export function PrintLabel({
             <div className="detail-label">Item Count</div>
             <div className="detail-value">{actualItemCount} items</div>
           </div>
+          {weightKg && (
+            <div className="detail-box">
+              <div className="detail-label">Weight</div>
+              <div className="detail-value">{weightKg} kg</div>
+            </div>
+          )}
           <div className="detail-box">
             <div className="detail-label">Date</div>
             <div className="detail-value">{date}</div>

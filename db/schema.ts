@@ -98,6 +98,7 @@ export const shipments = mysqlTable("shipments", {
   actualItemCount: int("actual_item_count"),
   itemDetails: text("item_details"),
   storageLocation: varchar("storage_location", { length: 200 }),
+  weightKg: decimal("weight_kg", { precision: 10, scale: 2 }),
   warehouseOfficerId: bigint("warehouse_officer_id", { mode: "number", unsigned: true }),
   labeledAt: timestamp("labeled_at"),
 
