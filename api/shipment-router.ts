@@ -472,6 +472,8 @@ export const shipmentRouter = createRouter({
       status: z.string().optional(),
       search: z.string().optional(),
       tplId: z.number().optional(),
+      year: z.number().optional(),
+      month: z.number().optional(),
     }).optional())
     .query(async ({ input, ctx }) => {
       const db = getDb();
@@ -501,7 +503,7 @@ export const shipmentRouter = createRouter({
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-      const results = await db.select({
+      let results = await db.select({
         id: shipments.id,
         trackingId: shipments.trackingId,
         status: shipments.status,
@@ -521,6 +523,15 @@ export const shipmentRouter = createRouter({
         .orderBy(desc(shipments.createdAt))
         .limit(limit)
         .offset(offset);
+
+      // Filter by month/year if provided
+      if (input?.year && input?.month) {
+        results = results.filter(s => {
+          if (!s.createdAt) return false;
+          const d = new Date(s.createdAt);
+          return d.getFullYear() === input.year && d.getMonth() + 1 === input.month;
+        });
+      }
 
       const branchIds = [...new Set(results.map(s => s.destBranchId).filter(Boolean))];
       const branchList = branchIds.length > 0
@@ -590,7 +601,7 @@ export const shipmentRouter = createRouter({
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-      const results = await db.select({
+      let results = await db.select({
         id: shipments.id,
         trackingId: shipments.trackingId,
         status: shipments.status,
@@ -695,26 +706,38 @@ export const shipmentRouter = createRouter({
     }),
 
   // ── STATS ──
-  stats: authedQuery.query(async ({ ctx }) => {
-    const db = getDb();
-    const allShipments = await db.select().from(shipments);
-    let filtered = allShipments;
-    if (ctx.user?.role === "driver") {
-      filtered = allShipments.filter(s => s.assignedDriverId === ctx.user!.id);
-    }
-    // Branch managers only see shipments to their branch
-    if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
-      filtered = allShipments.filter(s => s.destBranchId === ctx.user!.branchId);
-    }
-    return {
-      total: filtered.length,
-      created: filtered.filter(s => s.status === "created").length,
-      labeled: filtered.filter(s => s.status === "labeled").length,
-      active: filtered.filter(s => !["delivered", "completed", "cancelled"].includes(s.status)).length,
-      delivered: filtered.filter(s => s.status === "delivered" || s.status === "completed").length,
-      cancelled: filtered.filter(s => s.status === "cancelled").length,
-    };
-  }),
+  stats: authedQuery
+    .input(z.object({ year: z.number().optional(), month: z.number().optional() }).optional())
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      let allShipments = await db.select().from(shipments);
+
+      // Filter by month/year if provided
+      if (input?.year && input?.month) {
+        allShipments = allShipments.filter(s => {
+          if (!s.createdAt) return false;
+          const d = new Date(s.createdAt);
+          return d.getFullYear() === input.year && d.getMonth() + 1 === input.month;
+        });
+      }
+
+      let filtered = allShipments;
+      if (ctx.user?.role === "driver") {
+        filtered = allShipments.filter(s => s.assignedDriverId === ctx.user!.id);
+      }
+      // Branch managers only see shipments to their branch
+      if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
+        filtered = allShipments.filter(s => s.destBranchId === ctx.user!.branchId);
+      }
+      return {
+        total: filtered.length,
+        created: filtered.filter(s => s.status === "created").length,
+        labeled: filtered.filter(s => s.status === "labeled").length,
+        active: filtered.filter(s => !["delivered", "completed", "cancelled"].includes(s.status)).length,
+        delivered: filtered.filter(s => s.status === "delivered" || s.status === "completed").length,
+        cancelled: filtered.filter(s => s.status === "cancelled").length,
+      };
+    }),
 
   // ── ATTENTION STATS (overdue / due soon) ──
   attentionStats: authedQuery.query(async ({ ctx }) => {

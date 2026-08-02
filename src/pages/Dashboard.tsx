@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useNavigate } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/providers/trpc";
@@ -5,16 +6,38 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ROLE_LABELS, STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { Package, Truck, Clock, CheckCircle, AlertTriangle, Plus, UserCheck, Boxes, Timer } from "lucide-react";
+import { Package, Truck, Clock, CheckCircle, AlertTriangle, Plus, UserCheck, Boxes, Timer, Calendar } from "lucide-react";
+
+function getMonthYearOptions() {
+  const options: { label: string; value: string }[] = [];
+  const now = new Date();
+  for (let i = 0; i < 12; i++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const month = String(d.getMonth() + 1).padStart(2, "0");
+    const year = d.getFullYear();
+    options.push({
+      label: d.toLocaleDateString("en-NG", { month: "long", year: "numeric" }),
+      value: `${year}-${month}`,
+    });
+  }
+  return options;
+}
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { user, isAdmin } = useAuth();
   const role = user?.role;
 
-  const { data: stats } = trpc.shipment.stats.useQuery();
+  const now = new Date();
+  const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
+  const [selectedMonth, setSelectedMonth] = useState(defaultMonth);
+  const monthOptions = getMonthYearOptions();
+
+  const [year, month] = selectedMonth.split("-");
+
+  const { data: stats } = trpc.shipment.stats.useQuery({ year: Number(year), month: Number(month) });
   const { data: attention } = trpc.shipment.attentionStats.useQuery();
-  const { data: recentShipments } = trpc.shipment.list.useQuery({ page: 1, limit: 5 });
+  const { data: recentShipments } = trpc.shipment.list.useQuery({ page: 1, limit: 10, year: Number(year), month: Number(month) });
   const { data: userStats } = trpc.user.stats.useQuery(undefined, { enabled: isAdmin });
 
   const kpis = [
@@ -33,6 +56,20 @@ export default function Dashboard() {
           <p className="text-xs text-gray-500">Welcome back, {user?.name?.split(" ")[0]}</p>
         </div>
         <Badge variant="outline" className="text-[10px]">{ROLE_LABELS[role as keyof typeof ROLE_LABELS] || role}</Badge>
+      </div>
+
+      {/* Month Selector */}
+      <div className="flex items-center gap-2 mb-4 bg-gray-50 rounded-lg p-2">
+        <Calendar size={16} className="text-gray-400" />
+        <select
+          value={selectedMonth}
+          onChange={e => setSelectedMonth(e.target.value)}
+          className="flex-1 bg-transparent text-sm font-medium text-[#1E293B] outline-none cursor-pointer"
+        >
+          {monthOptions.map(opt => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
       </div>
 
       {/* Quick Actions */}
