@@ -141,6 +141,7 @@ export default function ShipmentDetail() {
                   {i < events.length - 1 && <div className="absolute left-[7px] top-6 w-0.5 h-full bg-gray-200" />}
                   <div className={`w-4 h-4 rounded-full mt-1 flex-shrink-0 ${i === events.length - 1 ? "bg-[#003B7A]" : "bg-gray-300"}`} />
                   <div className="pb-4">
+                    <p className="text-[10px] font-bold text-[#003B7A]">{event.actorName || "Unknown"}</p>
                     <p className="text-xs font-medium">{event.notes || event.eventType}</p>
                     <p className="text-[10px] text-gray-400">{event.createdAt ? new Date(event.createdAt).toLocaleString() : ""}</p>
                   </div>

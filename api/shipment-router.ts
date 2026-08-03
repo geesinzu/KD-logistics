@@ -675,6 +675,22 @@ export const shipmentRouter = createRouter({
       const events = await db.select().from(trackingEvents).where(eq(trackingEvents.shipmentId, input.id)).orderBy(trackingEvents.createdAt);
       const creator = await db.select({ name: users.name }).from(users).where(eq(users.id, shipment[0].createdBy)).limit(1);
 
+      // Enrich tracking events with actor names
+      const { tplUsers } = await import("@db/schema");
+      const enrichedEvents = await Promise.all(events.map(async (ev) => {
+        let actorName = "System";
+        if (ev.createdBy) {
+          if (ev.actorType === "tpl_user") {
+            const tplU = await db.select({ name: tplUsers.name }).from(tplUsers).where(eq(tplUsers.id, ev.createdBy)).limit(1);
+            actorName = tplU[0]?.name ? `${tplU[0].name} (3PL)` : "3PL User";
+          } else {
+            const u = await db.select({ name: users.name }).from(users).where(eq(users.id, ev.createdBy)).limit(1);
+            actorName = u[0]?.name || "Unknown";
+          }
+        }
+        return { ...ev, actorName };
+      }));
+
       return {
         ...shipment[0],
         destinationBranch: branch[0]?.name || "Unknown",
@@ -684,7 +700,7 @@ export const shipmentRouter = createRouter({
         driverName: driver[0]?.name || null,
         driverPhone: driver[0]?.phone || null,
         creatorName: creator[0]?.name || "Unknown",
-        trackingEvents: events,
+        trackingEvents: enrichedEvents,
       };
     }),
 
