@@ -80,7 +80,7 @@ export const shipmentRouter = createRouter({
       actualItemCount: z.number().min(1),
       itemDetails: z.string(),
       storageLocation: z.string(),
-      weightKg: z.number().min(0.01, "Weight is required").optional(),
+      weightKg: z.number().min(0.01, "Weight is required"),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
@@ -92,31 +92,26 @@ export const shipmentRouter = createRouter({
       const trackingId = generateTrackingId(branchName);
       const qrToken = generateQrToken();
 
-      const updateData: any = {
-        actualItemCount: input.actualItemCount,
-        itemDetails: input.itemDetails,
-        storageLocation: input.storageLocation,
-        warehouseOfficerId: ctx.user.id,
-        trackingId,
-        qrCodeToken: qrToken,
-        status: "labeled",
-        labeledAt: new Date(),
-      };
-      if (input.weightKg !== undefined) {
-        updateData.weightKg = String(input.weightKg);
-      }
-
       await db.update(shipments)
-        .set(updateData)
+        .set({
+          actualItemCount: input.actualItemCount,
+          itemDetails: input.itemDetails,
+          storageLocation: input.storageLocation,
+          weightKg: String(input.weightKg),
+          warehouseOfficerId: ctx.user.id,
+          trackingId,
+          qrCodeToken: qrToken,
+          status: "labeled",
+          labeledAt: new Date(),
+        })
         .where(eq(shipments.id, input.shipmentId));
 
-      const weightNote = input.weightKg !== undefined ? ` Weight: ${input.weightKg}kg.` : "";
       await db.insert(trackingEvents).values({
         shipmentId: input.shipmentId,
         eventType: "items_input",
         oldStatus: "created",
         newStatus: "labeled",
-        notes: `${input.actualItemCount} items logged.${weightNote} Location: ${input.storageLocation}`,
+        notes: `${input.actualItemCount} items logged. Weight: ${input.weightKg}kg. Location: ${input.storageLocation}`,
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
