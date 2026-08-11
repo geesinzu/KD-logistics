@@ -9,6 +9,13 @@ import { Card, CardContent } from "@/components/ui/card";
 import { ArrowLeft, QrCode, Printer, FileText } from "lucide-react";
 import { PrintLabel } from "@/components/PrintLabel";
 
+// ====================================================================
+// FEATURE FLAG: weightKg field
+// Set to true to re-enable weight entry in warehouse processing
+// Keyword to reactivate: "REACTIVATE_WEIGHT_FEATURE"
+// ====================================================================
+const WEIGHT_FEATURE_ENABLED = false;
+
 export default function WarehouseProcess() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -41,13 +48,13 @@ export default function WarehouseProcess() {
     if (!actualItemCount || Number(actualItemCount) < 1) { setError("Item count required"); return; }
     if (!itemDetails.trim()) { setError("Item details required"); return; }
     if (!storageLocation.trim()) { setError("Storage location required"); return; }
-    if (!weightKg || Number(weightKg) <= 0) { setError("Weight (kg) is required"); return; }
+    if (WEIGHT_FEATURE_ENABLED && (!weightKg || Number(weightKg) <= 0)) { setError("Weight (kg) is required"); return; }
     processMutation.mutate({
       shipmentId: Number(id),
       actualItemCount: Number(actualItemCount),
       itemDetails,
       storageLocation,
-      weightKg: Number(weightKg),
+      weightKg: WEIGHT_FEATURE_ENABLED && weightKg ? Number(weightKg) : undefined,
     });
   };
 
@@ -63,7 +70,7 @@ export default function WarehouseProcess() {
             destinationBranch={shipment.destinationBranch}
             receiverName={shipment.receiverName}
             actualItemCount={actualItemCount}
-            weightKg={weightKg}
+            weightKg={WEIGHT_FEATURE_ENABLED ? weightKg : undefined}
             itemDetails={itemDetails}
             onClose={() => setShowPrint(false)}
           />
@@ -137,11 +144,13 @@ export default function WarehouseProcess() {
             <Label>Storage Location *</Label>
             <Input value={storageLocation} onChange={e => setStorageLocation(e.target.value)} placeholder="Warehouse A, Shelf 12" required />
           </div>
-          <div>
-            <Label>Weight (kg) *</Label>
-            <Input type="number" step="0.01" min="0.01" value={weightKg} onChange={e => setWeightKg(e.target.value)} placeholder="e.g., 12.5" required />
-            <p className="text-[10px] text-gray-400 mt-0.5">Total shipment weight in kilograms</p>
-          </div>
+          {WEIGHT_FEATURE_ENABLED && (
+            <div>
+              <Label>Weight (kg) *</Label>
+              <Input type="number" step="0.01" min="0.01" value={weightKg} onChange={e => setWeightKg(e.target.value)} placeholder="e.g., 12.5" required={WEIGHT_FEATURE_ENABLED} />
+              <p className="text-[10px] text-gray-400 mt-0.5">Total shipment weight in kilograms</p>
+            </div>
+          )}
           {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</p>}
           <Button type="submit" className="w-full bg-[#003B7A] hover:bg-[#002B5A] h-12" disabled={processMutation.isPending}>
             <QrCode size={16} className="mr-2" /> {processMutation.isPending ? "Generating..." : "Generate Shipping Label"}
