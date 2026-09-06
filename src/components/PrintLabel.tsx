@@ -1,9 +1,11 @@
-import { useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Printer, X } from "lucide-react";
+import QRCode from "qrcode";
 
 interface PrintLabelProps {
   trackingId: string;
+  qrToken?: string | null;
   destinationBranch: string;
   receiverName?: string | null;
   actualItemCount: string | number;
@@ -15,6 +17,7 @@ interface PrintLabelProps {
 
 export function PrintLabel({
   trackingId,
+  qrToken,
   destinationBranch,
   receiverName,
   actualItemCount,
@@ -24,6 +27,17 @@ export function PrintLabel({
   onClose,
 }: PrintLabelProps) {
   const printRef = useRef<HTMLDivElement>(null);
+  const [qrDataUrl, setQrDataUrl] = useState("");
+
+  useEffect(() => {
+    const value = qrToken || trackingId;
+    if (!value) return;
+    let cancelled = false;
+    QRCode.toDataURL(value, { width: 160, margin: 1 })
+      .then(url => { if (!cancelled) setQrDataUrl(url); })
+      .catch(() => { if (!cancelled) setQrDataUrl(""); });
+    return () => { cancelled = true; };
+  }, [qrToken, trackingId]);
 
   const handlePrint = () => {
     const content = printRef.current;
@@ -49,7 +63,7 @@ export function PrintLabel({
           .tracking-section { background: #F1F5F9; border-radius: 8px; padding: 14px; margin-bottom: 16px; text-align: center; }
           .tracking-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #64748B; margin-bottom: 4px; }
           .tracking-id { font-size: 32px; font-weight: 800; color: #003B7A; letter-spacing: 4px; font-family: 'Courier New', monospace; }
-          .barcode { margin: 8px auto; width: 280px; height: 60px; background: repeating-linear-gradient(90deg, #000 0px, #000 2px, #fff 2px, #fff 4px, #000 4px, #000 5px, #fff 5px, #fff 8px); }
+          .qr-code { margin: 8px auto 0; width: 120px; height: 120px; display: block; }
           .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
           .detail-box { border: 1.5px solid #E2E8F0; border-radius: 6px; padding: 12px; }
           .detail-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #94A3B8; margin-bottom: 4px; font-weight: 700; }
@@ -88,8 +102,8 @@ export function PrintLabel({
     <div>
       {/* Print button */}
       <div className="flex gap-2 mb-4">
-        <Button className="flex-1 h-12 bg-[#003B7A] hover:bg-[#002B5A]" onClick={handlePrint}>
-          <Printer size={16} className="mr-2" /> Print Label
+        <Button className="flex-1 h-12 bg-[#003B7A] hover:bg-[#002B5A]" onClick={handlePrint} disabled={!qrDataUrl}>
+          <Printer size={16} className="mr-2" /> {qrDataUrl ? "Print Label" : "Preparing QR Code..."}
         </Button>
         {onClose && (
           <Button variant="outline" className="h-12 px-4" onClick={onClose}>
@@ -111,7 +125,7 @@ export function PrintLabel({
         <div className="tracking-section">
           <div className="tracking-label">Tracking Number</div>
           <div className="tracking-id">{trackingId}</div>
-          <div className="barcode"></div>
+          {qrDataUrl && <img src={qrDataUrl} alt="QR Code" className="qr-code" />}
         </div>
 
         <div className="details-grid">
