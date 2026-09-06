@@ -1,12 +1,14 @@
 import { Outlet, useNavigate, useLocation } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
-import { Home, Package, Users, ScanLine, UserCircle } from "lucide-react";
+import { useUnreadNotificationCount } from "@/hooks/useNotifications";
+import { Home, Package, Users, ScanLine, UserCircle, Bell } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 
 export function AppLayout() {
   const navigate = useNavigate();
   const location = useLocation();
   const { user } = useAuth();
+  const unreadCount = useUnreadNotificationCount();
 
   const role = user?.role;
   const isAdmin = role === "super_admin" || role === "admin";
@@ -22,6 +24,21 @@ export function AppLayout() {
   return (
     <div className="flex flex-col h-screen bg-[#F8FAFC]">
       <Toaster position="top-center" richColors />
+      <header className="flex items-center justify-between px-4 h-12 bg-white border-b border-gray-100 shrink-0">
+        <img src="/kedi-logo.png" alt="KEDI" className="h-6" />
+        <button
+          onClick={() => navigate("/notifications")}
+          className="relative p-1.5 text-gray-500 hover:text-[#003B7A] transition-colors"
+          aria-label="Notifications"
+        >
+          <Bell size={20} />
+          {unreadCount > 0 && (
+            <span className="absolute -top-0.5 -right-0.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-white text-[9px] font-bold flex items-center justify-center">
+              {unreadCount > 9 ? "9+" : unreadCount}
+            </span>
+          )}
+        </button>
+      </header>
       <main className="flex-1 overflow-y-auto pb-20">
         <Outlet />
       </main>
