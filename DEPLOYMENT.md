@@ -67,6 +67,16 @@ Settings → Secrets and variables → Actions → New repository secret:
 | `DEPLOY_SSH_KEY` | The private key from step 5, full contents |
 | `DEPLOY_PATH` | Absolute path to the app root, e.g. `/home/cpaneluser/kd-logistics-app` |
 
+Also add one repo **variable** (Settings → Secrets and variables →
+Actions → **Variables** tab, not Secrets — it's not sensitive):
+
+| Variable | Value |
+|---|---|
+| `APP_URL` | Your live app URL, e.g. `https://kedi-logistics.com` |
+
+This powers the workflow's smoke test (see below). Until it's set, that
+step is skipped rather than failing the deploy.
+
 Notes:
 - `DATABASE_URL`/`JWT_SECRET`/`VAPID_*` are **not** GitHub secrets —
   they live only in cPanel's Node.js App environment-variables screen,
@@ -85,6 +95,11 @@ Notes:
 4. Passenger (which powers cPanel's Node.js Selector) detects the
    changed `tmp/restart.txt` and reloads the app on the next request —
    no separate restart step needed.
+5. If `APP_URL` is set, the workflow then polls
+   `{APP_URL}/api/trpc/health` (an existing endpoint that checks DB
+   connectivity) for up to ~30 seconds and fails the job if the app
+   never comes back up — so a green run actually means the site is
+   live, not just that files were copied.
 
 ## First deploy checklist
 

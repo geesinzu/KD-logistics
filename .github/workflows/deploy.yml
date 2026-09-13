@@ -46,3 +46,24 @@ jobs:
           remote_port: ${{ secrets.DEPLOY_PORT }}
           remote_user: ${{ secrets.DEPLOY_USER }}
           remote_key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      # Files landing on the server doesn't mean the app came back up —
+      # Passenger needs a moment to restart, and a bad path/env var would
+      # otherwise leave this workflow green while the site is actually down.
+      # Skips gracefully (doesn't fail the job) until the APP_URL repo
+      # variable is set, so this doesn't break early runs before cPanel is
+      # configured — see DEPLOYMENT.md.
+      - name: Smoke test
+        if: ${{ vars.APP_URL != '' }}
+        run: |
+          for i in $(seq 1 10); do
+            response=$(curl -s -m 5 "${{ vars.APP_URL }}/api/trpc/health" || true)
+            if echo "$response" | grep -q '"ok":true'; then
+              echo "Health check passed: $response"
+              exit 0
+            fi
+            echo "Attempt $i: not ready yet ($response), retrying..."
+            sleep 3
+          done
+          echo "Health check failed after retries — app did not come back up."
+          exit 1
