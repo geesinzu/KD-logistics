@@ -3,7 +3,7 @@ import { eq, desc, and, sql, inArray } from "drizzle-orm";
 import { shipments, trackingEvents, users, branches, thirdPartyLogistics } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { createRouter, authedQuery, adminQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
-import { BRANCH_TRACKING_CODES } from "@contracts/constants";
+import { BRANCH_TRACKING_CODES, SHIPMENT_STATUSES, STATUS_LABELS } from "@contracts/constants";
 import {
   notifyShipmentCreated, notifyWarehouseProcessed, notify3plAssigned,
   notify3plStatusUpdate, notifyShipmentDelivered, notifyShipmentCompleted,
@@ -885,5 +885,137 @@ export const shipmentRouter = createRouter({
         .where(eq(trackingEvents.shipmentId, input.shipmentId))
         .orderBy(trackingEvents.createdAt);
       return events;
+    }),
+
+  // ── ANALYTICS / REPORTS ──
+  // Delivery performance, branch throughput, 3PL comparison, monthly trend.
+  // Scoped the same way as `stats`: drivers see only their own shipments,
+  // branch managers only their branch — everyone else sees the full picture.
+  analytics: authedQuery
+    .input(z.object({ months: z.number().min(1).max(12).default(6) }).optional())
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const monthsBack = input?.months ?? 6;
+
+      let allShipments = await db.select().from(shipments);
+      if (ctx.user?.role === "driver") {
+        allShipments = allShipments.filter(s => s.assignedDriverId === ctx.user!.id);
+      } else if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
+        allShipments = allShipments.filter(s => s.destBranchId === ctx.user!.branchId);
+      }
+
+      const doneStatuses = ["delivered", "completed"];
+      const finished = allShipments.filter(s => doneStatuses.includes(s.status) && (s.deliveredAt || s.completedAt));
+
+      let onTime = 0, late = 0, noEta = 0, totalDays = 0, daysCount = 0;
+      for (const s of finished) {
+        const finishedAt = (s.deliveredAt ?? s.completedAt)!;
+        if (s.estimatedDeliveryDate) {
+          if (new Date(finishedAt).getTime() <= new Date(s.estimatedDeliveryDate).getTime()) onTime++;
+          else late++;
+        } else {
+          noEta++;
+        }
+        if (s.createdAt) {
+          totalDays += (new Date(finishedAt).getTime() - new Date(s.createdAt).getTime()) / 86400000;
+          daysCount++;
+        }
+      }
+
+      const branchList = await db.select().from(branches);
+      const byBranch = branchList
+        .map(b => {
+          const items = allShipments.filter(s => s.destBranchId === b.id);
+          return {
+            branchId: b.id,
+            branchName: b.name,
+            total: items.length,
+            delivered: items.filter(s => doneStatuses.includes(s.status)).length,
+            active: items.filter(s => !doneStatuses.includes(s.status) && s.status !== "cancelled").length,
+          };
+        })
+        .filter(b => b.total > 0)
+        .sort((a, b) => b.total - a.total)
+        .slice(0, 10);
+
+      const tplList = await db.select().from(thirdPartyLogistics);
+      const byTpl = tplList
+        .map(t => {
+          const items = allShipments.filter(s => s.tplId === t.id);
+          const finishedItems = items.filter(s => doneStatuses.includes(s.status) && s.estimatedDeliveryDate && (s.deliveredAt || s.completedAt));
+          const tplOnTime = finishedItems.filter(s => new Date((s.deliveredAt ?? s.completedAt)!).getTime() <= new Date(s.estimatedDeliveryDate!).getTime()).length;
+          return {
+            tplId: t.id,
+            tplName: t.name,
+            total: items.length,
+            onTimeRate: finishedItems.length > 0 ? Math.round((tplOnTime / finishedItems.length) * 100) : null,
+          };
+        })
+        .filter(t => t.total > 0)
+        .sort((a, b) => b.total - a.total);
+
+      const statusBreakdown = SHIPMENT_STATUSES
+        .map(status => ({
+          status,
+          label: STATUS_LABELS[status] || status,
+          count: allShipments.filter(s => s.status === status).length,
+        }))
+        .filter(s => s.count > 0);
+
+      const now = new Date();
+      const monthly: { label: string; created: number; delivered: number }[] = [];
+      for (let i = monthsBack - 1; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const y = d.getFullYear(), m = d.getMonth();
+        const created = allShipments.filter(s => s.createdAt && new Date(s.createdAt).getFullYear() === y && new Date(s.createdAt).getMonth() === m).length;
+        const delivered = allShipments.filter(s => {
+          const finishedAt = s.deliveredAt ?? s.completedAt;
+          return finishedAt && new Date(finishedAt).getFullYear() === y && new Date(finishedAt).getMonth() === m;
+        }).length;
+        monthly.push({ label: d.toLocaleDateString("en-NG", { month: "short" }), created, delivered });
+      }
+
+      return {
+        totalShipments: allShipments.length,
+        onTime, late, noEta,
+        onTimeRate: (onTime + late) > 0 ? Math.round((onTime / (onTime + late)) * 100) : null,
+        avgDeliveryDays: daysCount > 0 ? Math.round((totalDays / daysCount) * 10) / 10 : null,
+        byBranch, byTpl, monthly, statusBreakdown,
+      };
+    }),
+
+  // ── RECENT ACTIVITY (for the in-app notification center) ──
+  recentActivity: authedQuery
+    .input(z.object({ limit: z.number().min(1).max(100).default(30) }).optional())
+    .query(async ({ ctx, input }) => {
+      const db = getDb();
+      const limit = input?.limit ?? 30;
+
+      let shipmentIds: number[] | null = null;
+      if (ctx.user?.role === "driver") {
+        const rows = await db.select({ id: shipments.id }).from(shipments).where(eq(shipments.assignedDriverId, ctx.user.id));
+        shipmentIds = rows.map(r => r.id);
+      } else if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
+        const rows = await db.select({ id: shipments.id }).from(shipments).where(eq(shipments.destBranchId, ctx.user.branchId));
+        shipmentIds = rows.map(r => r.id);
+      }
+      if (shipmentIds && shipmentIds.length === 0) return { events: [] };
+
+      const events = await db.select().from(trackingEvents)
+        .where(shipmentIds ? inArray(trackingEvents.shipmentId, shipmentIds) : undefined)
+        .orderBy(desc(trackingEvents.createdAt))
+        .limit(limit);
+
+      const ids = [...new Set(events.map(e => e.shipmentId))];
+      const shipmentRows = ids.length > 0
+        ? await db.select({ id: shipments.id, trackingId: shipments.trackingId }).from(shipments).where(inArray(shipments.id, ids))
+        : [];
+
+      return {
+        events: events.map(e => ({
+          ...e,
+          trackingId: shipmentRows.find(s => s.id === e.shipmentId)?.trackingId || `#${e.shipmentId}`,
+        })),
+      };
     }),
 });

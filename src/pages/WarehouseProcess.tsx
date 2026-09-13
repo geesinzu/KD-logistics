@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
@@ -6,8 +6,9 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Card, CardContent } from "@/components/ui/card";
-import { ArrowLeft, QrCode, Printer, FileText } from "lucide-react";
+import { ArrowLeft, QrCode, FileText } from "lucide-react";
 import { PrintLabel } from "@/components/PrintLabel";
+import QRCode from "qrcode";
 
 export default function WarehouseProcess() {
   const { id } = useParams<{ id: string }>();
@@ -19,6 +20,16 @@ export default function WarehouseProcess() {
   const [error, setError] = useState("");
   const [result, setResult] = useState<{ trackingId: string; qrToken: string } | null>(null);
   const [showPrint, setShowPrint] = useState(false);
+  const [qrDataUrl, setQrDataUrl] = useState("");
+
+  useEffect(() => {
+    if (!result?.qrToken) return;
+    let cancelled = false;
+    QRCode.toDataURL(result.qrToken, { width: 160, margin: 1 })
+      .then(url => { if (!cancelled) setQrDataUrl(url); })
+      .catch(() => { if (!cancelled) setQrDataUrl(""); });
+    return () => { cancelled = true; };
+  }, [result?.qrToken]);
 
   const utils = trpc.useUtils();
   const { data: shipment } = trpc.shipment.getById.useQuery(
@@ -60,6 +71,7 @@ export default function WarehouseProcess() {
         <div className="max-w-lg mx-auto p-4">
           <PrintLabel
             trackingId={result.trackingId}
+            qrToken={result.qrToken}
             destinationBranch={shipment.destinationBranch}
             receiverName={shipment.receiverName}
             actualItemCount={actualItemCount}
@@ -84,7 +96,11 @@ export default function WarehouseProcess() {
               <p className="text-xs text-gray-500 mb-1">TRACKING ID</p>
               <p className="text-2xl font-bold text-[#003B7A] tracking-wider">{result.trackingId}</p>
               <div className="mt-4 p-3 bg-gray-100 rounded-lg">
-                <QrCode size={80} className="mx-auto text-[#003B7A]" />
+                {qrDataUrl ? (
+                  <img src={qrDataUrl} alt="QR Code" className="mx-auto w-20 h-20" />
+                ) : (
+                  <QrCode size={80} className="mx-auto text-[#003B7A] animate-pulse" />
+                )}
                 <p className="text-[10px] text-gray-400 mt-1">QR Code for scanning</p>
               </div>
               <div className="mt-3 text-left text-xs space-y-1">

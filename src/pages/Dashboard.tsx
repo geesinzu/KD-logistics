@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ROLE_LABELS, STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { Package, Truck, Clock, CheckCircle, AlertTriangle, Plus, UserCheck, Boxes, Timer, Calendar } from "lucide-react";
+import { Package, Truck, Clock, CheckCircle, AlertTriangle, Plus, UserCheck, Boxes, Timer, Calendar, BarChart3 } from "lucide-react";
 
 function getMonthYearOptions() {
   const options: { label: string; value: string }[] = [];
@@ -73,11 +73,18 @@ export default function Dashboard() {
       </div>
 
       {/* Quick Actions */}
-      {role && ["super_admin", "admin", "shipment_creator", "logistics_officer"].includes(role) && (
+      {role && (["super_admin", "admin", "shipment_creator", "logistics_officer", "branch_manager"].includes(role)) && (
         <div className="flex gap-2 mb-4">
-          <Button size="sm" className="bg-[#003B7A] hover:bg-[#002B5A] flex-1 h-10" onClick={() => navigate("/shipments/create")}>
-            <Plus size={16} className="mr-1" /> New Shipment
-          </Button>
+          {["super_admin", "admin", "shipment_creator", "logistics_officer"].includes(role) && (
+            <Button size="sm" className="bg-[#003B7A] hover:bg-[#002B5A] flex-1 h-10" onClick={() => navigate("/shipments/create")}>
+              <Plus size={16} className="mr-1" /> New Shipment
+            </Button>
+          )}
+          {["super_admin", "admin", "branch_manager", "logistics_officer"].includes(role) && (
+            <Button size="sm" variant="outline" className="h-10" onClick={() => navigate("/reports")}>
+              <BarChart3 size={16} className="mr-1" /> Reports
+            </Button>
+          )}
         </div>
       )}
 

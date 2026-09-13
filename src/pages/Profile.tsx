@@ -7,7 +7,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { ROLE_LABELS } from "@contracts/constants";
 import { toast } from "sonner";
-import { UserCircle, Phone, Shield, LogOut, Package, Camera, Loader2, Bell, BellOff } from "lucide-react";
+import { UserCircle, Phone, Shield, LogOut, Package, Camera, Loader2, Bell, BellOff, BarChart3 } from "lucide-react";
 
 function resizeImage(file: File, maxWidth: number, maxHeight: number): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -180,6 +180,11 @@ export default function Profile() {
           <button onClick={() => navigate("/shipments")} className="w-full flex items-center gap-3 p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors text-left">
             <Package size={18} className="text-[#003B7A]" /><span className="text-sm">My Shipments</span>
           </button>
+          {(isAdmin || user?.role === "branch_manager" || user?.role === "logistics_officer") && (
+            <button onClick={() => navigate("/reports")} className="w-full flex items-center gap-3 p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors text-left">
+              <BarChart3 size={18} className="text-[#003B7A]" /><span className="text-sm">Reports</span>
+            </button>
+          )}
           <button onClick={() => navigate("/scan")} className="w-full flex items-center gap-3 p-4 hover:bg-gray-50 transition-colors text-left">
             <UserCircle size={18} className="text-[#003B7A]" /><span className="text-sm">QR Scanner</span>
           </button>

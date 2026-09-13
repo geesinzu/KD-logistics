@@ -1,0 +1,69 @@
+name: Deploy to cPanel
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch: {}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      # Everything below runs on GitHub's runner, not on the shared host —
+      # the shared host never needs to run npm install or a build.
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build client + server bundle
+        run: npm run build
+
+      # dist/boot.mjs is a fully self-contained bundle (verified to run with
+      # node_modules entirely absent), so the deployed app root only needs:
+      #   boot.mjs, public/ (static assets), a minimal package.json for
+      #   cPanel's Node.js Selector, and tmp/restart.txt to trigger a reload.
+      - name: Prepare deploy payload
+        run: |
+          echo '{"name":"kd-logistics","private":true,"type":"module"}' > dist/package.json
+          mkdir -p dist/tmp
+          date -u +%s > dist/tmp/restart.txt
+
+      - name: Deploy over rsync/SSH
+        uses: burnett01/rsync-deployments@7.0.2
+        with:
+          switches: -avzr --delete --exclude=node_modules --exclude=.env
+          path: dist/
+          remote_path: ${{ secrets.DEPLOY_PATH }}
+          remote_host: ${{ secrets.DEPLOY_HOST }}
+          remote_port: ${{ secrets.DEPLOY_PORT }}
+          remote_user: ${{ secrets.DEPLOY_USER }}
+          remote_key: ${{ secrets.DEPLOY_SSH_KEY }}
+
+      # Files landing on the server doesn't mean the app came back up —
+      # Passenger needs a moment to restart, and a bad path/env var would
+      # otherwise leave this workflow green while the site is actually down.
+      # Skips gracefully (doesn't fail the job) until the APP_URL repo
+      # variable is set, so this doesn't break early runs before cPanel is
+      # configured — see DEPLOYMENT.md.
+      - name: Smoke test
+        if: ${{ vars.APP_URL != '' }}
+        run: |
+          for i in $(seq 1 10); do
+            response=$(curl -s -m 5 "${{ vars.APP_URL }}/api/trpc/health" || true)
+            if echo "$response" | grep -q '"ok":true'; then
+              echo "Health check passed: $response"
+              exit 0
+            fi
+            echo "Attempt $i: not ready yet ($response), retrying..."
+            sleep 3
+          done
+          echo "Health check failed after retries — app did not come back up."
+          exit 1
