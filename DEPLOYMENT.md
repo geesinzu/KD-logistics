@@ -65,6 +65,7 @@ Settings → Secrets and variables → Actions → New repository secret:
 | `DEPLOY_PORT` | Your host's SSH port (often *not* 22 on shared cPanel — check Security → SSH Access in cPanel) |
 | `DEPLOY_USER` | Your cPanel username |
 | `DEPLOY_SSH_KEY` | The private key from step 5, full contents |
+| `DEPLOY_SSH_KEY_PASS` | The key's passphrase — only add this secret if you set one when generating the key. Leave it unset entirely if the key has no passphrase. |
 | `DEPLOY_PATH` | Absolute path to the app root, e.g. `/home/cpaneluser/kd-logistics-app` |
 
 Also add one repo **variable** (Settings → Secrets and variables →
