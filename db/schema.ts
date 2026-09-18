@@ -1,7 +1,6 @@
 import {
   mysqlTable,
   mysqlEnum,
-  serial,
   varchar,
   text,
   timestamp,
@@ -14,7 +13,7 @@ import {
 
 // ── USERS ──
 export const users = mysqlTable("users", {
-  id: serial("id").primaryKey(),
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
   phone: varchar("phone", { length: 20 }).notNull().unique(),
   name: varchar("name", { length: 100 }).notNull(),
   email: varchar("email", { length: 320 }),
@@ -43,7 +42,7 @@ export type InsertUser = typeof users.$inferInsert;
 
 // ── BRANCHES ──
 export const branches = mysqlTable("branches", {
-  id: serial("id").primaryKey(),
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
   code: varchar("code", { length: 10 }).notNull().unique(),
   city: varchar("city", { length: 50 }),
@@ -57,7 +56,7 @@ export type Branch = typeof branches.$inferSelect;
 
 // ── THIRD PARTY LOGISTICS ──
 export const thirdPartyLogistics = mysqlTable("third_party_logistics", {
-  id: serial("id").primaryKey(),
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
   name: varchar("name", { length: 100 }).notNull(),
   code: varchar("code", { length: 10 }).notNull().unique(),
   phone: varchar("phone", { length: 20 }),
@@ -73,7 +72,7 @@ export type ThirdPartyLogistics = typeof thirdPartyLogistics.$inferSelect;
 
 // ── SHIPMENTS ──
 export const shipments = mysqlTable("shipments", {
-  id: serial("id").primaryKey(),
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
   trackingId: varchar("tracking_id", { length: 20 }).unique(),
   qrCodeToken: varchar("qr_code_token", { length: 255 }).unique(),
 
@@ -152,7 +151,7 @@ export type InsertShipment = typeof shipments.$inferInsert;
 
 // ── TRACKING EVENTS ──
 export const trackingEvents = mysqlTable("tracking_events", {
-  id: serial("id").primaryKey(),
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
   shipmentId: bigint("shipment_id", { mode: "number", unsigned: true }).notNull(),
   eventType: mysqlEnum("event_type", [
     "created",
@@ -190,7 +189,7 @@ export type TrackingEvent = typeof trackingEvents.$inferSelect;
 
 // ── TPL USERS (3PL portal users) ──
 export const tplUsers = mysqlTable("tpl_users", {
-  id: serial("id").primaryKey(),
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
   tplId: bigint("tpl_id", { mode: "number", unsigned: true }).notNull(),
   name: varchar("name", { length: 100 }).notNull(),
   phone: varchar("phone", { length: 20 }),
@@ -205,7 +204,7 @@ export type TplUser = typeof tplUsers.$inferSelect;
 
 // ── PUSH SUBSCRIPTIONS ──
 export const pushSubscriptions = mysqlTable("push_subscriptions", {
-  id: serial("id").primaryKey(),
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
   userId: bigint("user_id", { mode: "number", unsigned: true }),
   tplUserId: bigint("tpl_user_id", { mode: "number", unsigned: true }),
   endpoint: text("endpoint").notNull(),
@@ -220,7 +219,7 @@ export type PushSubscription = typeof pushSubscriptions.$inferSelect;
 
 // ── ACTIVITY LOG ──
 export const activityLog = mysqlTable("activity_log", {
-  id: serial("id").primaryKey(),
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
   userId: bigint("user_id", { mode: "number", unsigned: true }),
   action: varchar("action", { length: 50 }).notNull(),
   entityType: varchar("entity_type", { length: 30 }),
