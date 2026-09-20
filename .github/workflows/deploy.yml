@@ -57,8 +57,12 @@ jobs:
       - name: Smoke test
         if: ${{ vars.APP_URL != '' }}
         run: |
+          # Strip any trailing slash(es) from APP_URL so a stray one in the
+          # repo variable can't turn this into a double-slash path.
+          base_url="${{ vars.APP_URL }}"
+          base_url="${base_url%/}"
           for i in $(seq 1 10); do
-            response=$(curl -s -m 5 "${{ vars.APP_URL }}/api/trpc/health" || true)
+            response=$(curl -s -m 5 "$base_url/api/trpc/health" || true)
             if echo "$response" | grep -q '"ok":true'; then
               echo "Health check passed: $response"
               exit 0
