@@ -36,10 +36,22 @@ jobs:
           mkdir -p dist/tmp
           date -u +%s > dist/tmp/restart.txt
 
+      # --delete removes anything in the app root that isn't in our source -
+      # necessary to clean up files from old deploys, but dangerous here
+      # since the app root is a cPanel-managed directory: cPanel writes its
+      # own .htaccess (the actual LiteSpeed -> Passenger proxy wiring),
+      # cgi-bin/, and .well-known/ there, and none of those exist in our
+      # build output. Without these excludes, --delete wipes them out and
+      # breaks the domain's connection to the app entirely - confirmed this
+      # is exactly what happened on the first deploy into the real app root.
       - name: Deploy over rsync/SSH
         uses: burnett01/rsync-deployments@7.0.2
         with:
-          switches: -avzr --delete --exclude=node_modules --exclude=.env
+          switches: >-
+            -avzr --delete
+            --exclude=node_modules --exclude=.env
+            --exclude=.htaccess --exclude=cgi-bin --exclude=.well-known
+            --exclude=*.log
           path: dist/
           remote_path: ${{ secrets.DEPLOY_PATH }}
           remote_host: ${{ secrets.DEPLOY_HOST }}
