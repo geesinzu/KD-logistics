@@ -120,11 +120,13 @@ export default function QrScanner() {
   const startCamera = useCallback(async () => {
     setCameraError("");
     setCameraReady(false);
+    setScanning(true);
     scanCountRef.current = 0;
 
     // Check if mediaDevices is available
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
       setCameraError("Camera not supported. Use manual entry or upload QR image.");
+      setScanning(false);
       return;
     }
 
@@ -242,16 +244,23 @@ export default function QrScanner() {
         <div className="p-4">
           {/* Camera view */}
           <div className="relative bg-gray-900 rounded-xl overflow-hidden aspect-[4/3] mb-4">
+            {/* video/canvas stay mounted at all times so their refs exist before
+                startCamera() runs — they were previously only rendered once
+                scanning && cameraReady were true, which meant the ref was always
+                null at the moment the camera stream needed to be attached. */}
+            <video
+              ref={videoRef}
+              className={`absolute inset-0 w-full h-full object-cover transition-opacity ${
+                scanning && cameraReady ? "opacity-100" : "opacity-0 pointer-events-none"
+              }`}
+              playsInline
+              muted
+              autoPlay
+            />
+            <canvas ref={canvasRef} className="hidden" />
+
             {scanning && cameraReady ? (
               <>
-                <video
-                  ref={videoRef}
-                  className="absolute inset-0 w-full h-full object-cover"
-                  playsInline
-                  muted
-                  autoPlay
-                />
-                <canvas ref={canvasRef} className="hidden" />
                 {/* Scan overlay */}
                 <div className="absolute inset-0 pointer-events-none">
                   <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-48 h-48">
@@ -268,13 +277,23 @@ export default function QrScanner() {
               </>
             ) : (
               <div className="absolute inset-0 flex flex-col items-center justify-center p-6">
-                <QrCode size={48} className="text-white/30 mb-3" />
                 {cameraError ? (
-                  <p className="text-red-400 text-xs text-center mb-3">{cameraError}</p>
+                  <>
+                    <QrCode size={48} className="text-white/30 mb-3" />
+                    <p className="text-red-400 text-xs text-center mb-3">{cameraError}</p>
+                  </>
+                ) : scanning ? (
+                  <>
+                    <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white/60 mb-3" />
+                    <p className="text-white/50 text-xs text-center mb-3">Starting camera&hellip;</p>
+                  </>
                 ) : (
-                  <p className="text-white/50 text-xs text-center mb-3">Tap to scan QR code with camera</p>
+                  <>
+                    <QrCode size={48} className="text-white/30 mb-3" />
+                    <p className="text-white/50 text-xs text-center mb-3">Tap to scan QR code with camera</p>
+                  </>
                 )}
-                <Button className="bg-[#003B7A] hover:bg-[#002B5A]" onClick={startCamera}>
+                <Button className="bg-[#003B7A] hover:bg-[#002B5A]" onClick={startCamera} disabled={scanning && !cameraError}>
                   <Camera size={16} className="mr-2" /> Open Camera
                 </Button>
               </div>
