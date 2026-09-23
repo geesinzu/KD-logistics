@@ -12,8 +12,7 @@ import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
 import { Truck, LogOut, MapPin, Package, CheckCircle2, Clock, ChevronDown, ChevronUp, Bell, BellOff, Loader2 } from "lucide-react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useTplRecentActivity, useTplUnreadNotificationCount, markTplNotificationsSeen } from "@/hooks/useNotifications";
-import { EVENT_ICONS, EVENT_LABELS } from "@/lib/notificationEvents";
-import { formatDistanceToNow } from "date-fns";
+import { EVENT_ICONS, EVENT_LABELS, formatEventTime } from "@/lib/notificationEvents";
 
 export default function TplPortal() {
   const [filter, setFilter] = useState("all");
@@ -423,7 +422,7 @@ export default function TplPortal() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-semibold text-[#1E293B]">{EVENT_LABELS[ev.eventType] || ev.eventType}</span>
-                      <span className="text-[10px] text-gray-400 shrink-0">{formatDistanceToNow(new Date(ev.createdAt), { addSuffix: true })}</span>
+                      <span className="text-[10px] text-gray-400 shrink-0">{formatEventTime(ev.createdAt)}</span>
                     </div>
                     <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-2">{ev.notes}</p>
                     <p className="text-[10px] text-gray-400 mt-0.5">{ev.trackingId}</p>

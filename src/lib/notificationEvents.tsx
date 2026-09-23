@@ -1,6 +1,7 @@
 import {
   Bell, Package, ClipboardList, Tag, Truck, MapPin, CheckCircle2, AlertTriangle,
 } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
 
 export const EVENT_ICONS: Record<string, typeof Bell> = {
   created: Package,
@@ -37,3 +38,16 @@ export const EVENT_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
   note_added: "Note Added",
 };
+
+// A handful of legacy tracking_events rows have created_at as NULL in the
+// database (predates the column's NOT NULL DEFAULT CURRENT_TIMESTAMP being
+// applied on the real MariaDB table). new Date(null) evaluates to the Unix
+// epoch, which formatDistanceToNow then renders as a coherent-looking but
+// wrong "56 years ago" — so this needs an explicit guard, not a try/catch
+// around the rendering call.
+export function formatEventTime(createdAt: unknown): string {
+  if (!createdAt) return "Unknown time";
+  const date = new Date(createdAt as string);
+  if (isNaN(date.getTime()) || date.getFullYear() < 2000) return "Unknown time";
+  return formatDistanceToNow(date, { addSuffix: true });
+}

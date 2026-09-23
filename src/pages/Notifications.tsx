@@ -3,9 +3,8 @@ import { useNavigate } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useRecentActivity, markNotificationsSeen } from "@/hooks/useNotifications";
 import { Card, CardContent } from "@/components/ui/card";
-import { formatDistanceToNow } from "date-fns";
 import { ArrowLeft, Bell } from "lucide-react";
-import { EVENT_ICONS, EVENT_LABELS } from "@/lib/notificationEvents";
+import { EVENT_ICONS, EVENT_LABELS, formatEventTime } from "@/lib/notificationEvents";
 
 export default function Notifications() {
   const navigate = useNavigate();
@@ -49,7 +48,7 @@ export default function Notifications() {
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold text-[#1E293B]">{EVENT_LABELS[ev.eventType] || ev.eventType}</span>
                     <span className="text-[10px] text-gray-400 shrink-0">
-                      {formatDistanceToNow(new Date(ev.createdAt), { addSuffix: true })}
+                      {formatEventTime(ev.createdAt)}
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{ev.notes}</p>

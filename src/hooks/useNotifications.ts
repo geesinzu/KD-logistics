@@ -42,13 +42,25 @@ function subscribeToSeenEvent(callback: () => void) {
   return () => window.removeEventListener(SEEN_EVENT, callback);
 }
 
+// A handful of legacy tracking_events rows have created_at as NULL in the
+// database, which new Date(null) parses as the Unix epoch rather than an
+// invalid date. Returning 0 here just means such an event never counts as
+// "newer than last seen" — correct enough, since we can't know when it
+// really happened. See the same guard in Notifications.tsx for the
+// user-visible version of this issue.
+function getEventTime(createdAt: unknown): number {
+  if (!createdAt) return 0;
+  const time = new Date(createdAt as string).getTime();
+  return isNaN(time) ? 0 : time;
+}
+
 export function useUnreadNotificationCount() {
   const { user } = useAuth();
   const { data } = useRecentActivity(30);
   const lastSeenAt = useSyncExternalStore(subscribeToSeenEvent, () => getLastSeenAt(user?.id));
 
   const events = data?.events ?? [];
-  return events.filter(e => new Date(e.createdAt as unknown as string).getTime() > lastSeenAt).length;
+  return events.filter(e => getEventTime(e.createdAt) > lastSeenAt).length;
 }
 
 // ── 3PL variants ──
@@ -70,7 +82,7 @@ export function useTplUnreadNotificationCount() {
   const lastSeenAt = useSyncExternalStore(subscribeToSeenEvent, () => getLastSeenAt(seenKey));
 
   const events = data?.events ?? [];
-  return events.filter(e => new Date(e.createdAt as unknown as string).getTime() > lastSeenAt).length;
+  return events.filter(e => getEventTime(e.createdAt) > lastSeenAt).length;
 }
 
 export function markTplNotificationsSeen(tplUserId?: number | null) {
