@@ -691,7 +691,11 @@ export const shipmentRouter = createRouter({
       const driver = shipment[0].assignedDriverId
         ? await db.select({ name: users.name, phone: users.phone }).from(users).where(eq(users.id, shipment[0].assignedDriverId)).limit(1)
         : [];
-      const events = await db.select().from(trackingEvents).where(eq(trackingEvents.shipmentId, input.id)).orderBy(trackingEvents.createdAt);
+      // Ordered by id, not createdAt: some legacy rows have a created_at that
+      // doesn't reflect when they actually happened (see the id-based fix
+      // in getTrackingHistory/recentActivity below for the full story) --
+      // id is auto-increment and always reflects true insertion order.
+      const events = await db.select().from(trackingEvents).where(eq(trackingEvents.shipmentId, input.id)).orderBy(trackingEvents.id);
       const creator = await db.select({ name: users.name }).from(users).where(eq(users.id, shipment[0].createdBy)).limit(1);
 
       // Enrich tracking events with actor names
@@ -969,7 +973,7 @@ export const shipmentRouter = createRouter({
       const db = getDb();
       const events = await db.select().from(trackingEvents)
         .where(eq(trackingEvents.shipmentId, input.shipmentId))
-        .orderBy(trackingEvents.createdAt);
+        .orderBy(trackingEvents.id);
       return events;
     }),
 
@@ -1093,7 +1097,7 @@ export const shipmentRouter = createRouter({
 
       const events = await db.select().from(trackingEvents)
         .where(shipmentIds ? inArray(trackingEvents.shipmentId, shipmentIds) : undefined)
-        .orderBy(desc(trackingEvents.createdAt))
+        .orderBy(desc(trackingEvents.id))
         .limit(limit);
 
       const ids = [...new Set(events.map(e => e.shipmentId))];
