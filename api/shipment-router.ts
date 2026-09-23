@@ -40,51 +40,79 @@ function isValidEventDate(d: unknown): boolean {
   return !isNaN(time) && new Date(d as string).getFullYear() >= 2000;
 }
 
+type ShipmentDateAnchors = Partial<Record<
+  "createdAt" | "labeledAt" | "assignedAt" | "deliveredAt" | "completedAt",
+  unknown
+>>;
+
+// Maps an event type to the shipment-level milestone column set in the same
+// mutation that inserted it (see warehouseProcess/assign3pl/tplUpdateLocation/
+// acknowledgeDelivery). Those columns are nullable with no default, so unlike
+// created_at they were never touched by the NOT NULL enforcement that
+// corrupted legacy tracking_events timestamps -- wherever the app actually
+// set one, it's a genuine, precise value, not a guess.
+const EVENT_TYPE_SHIPMENT_DATE_FIELD: Record<string, keyof ShipmentDateAnchors> = {
+  created: "createdAt",
+  items_input: "labeledAt",
+  label_generated: "labeledAt",
+  assigned_to_3pl: "assignedAt",
+  tpl_full_delivery: "deliveredAt",
+  delivery_acknowledged: "completedAt",
+};
+
 // Some legacy tracking_events rows have a corrupted created_at (originally
 // NULL; forcing the column NOT NULL during a schema push coerced those to a
 // value that reads back as null/invalid, not their true original time --
 // that value is gone and can't be recovered from this column alone). Same
-// root cause can affect a shipment's own created_at too, which is why a
-// single forward-fill seeded by it isn't enough on its own: if the shipment's
-// createdAt is ALSO invalid and nothing earlier in its event sequence has a
-// real timestamp, forward-fill has nothing to inherit from.
+// root cause can affect a shipment's own created_at too.
 //
-// Two passes over events already sorted oldest-first (by id):
-//  1. Forward: carry the nearest earlier valid time forward, seeded by the
-//     shipment's own createdAt.
-//  2. Backward: anything still unfilled (nothing usable came before it)
-//     borrows the nearest LATER real timestamp in the same shipment instead.
-// Only borrows from genuinely real timestamps, never from another estimate,
-// so estimates don't compound. Flags every filled entry so the UI can show
-// that honestly instead of presenting a guess as fact.
-function fillEventTimestamps<T extends { createdAt: unknown }>(
+// Three passes over events already sorted oldest-first (by id):
+//  1. Anchor: for an event with no valid createdAt of its own, use the
+//     shipment-level milestone column for that exact event type (see
+//     EVENT_TYPE_SHIPMENT_DATE_FIELD), if that's valid.
+//  2. Forward: anything still missing carries the nearest earlier genuine
+//     (own or anchored) time forward, seeded by the shipment's own createdAt.
+//  3. Backward: anything still unfilled (nothing usable came before it)
+//     borrows the nearest LATER genuine time in the same shipment instead.
+// Only ever borrows from genuinely real timestamps (own, or a milestone
+// column), never from another estimate, so estimates don't compound. Flags
+// every filled entry so the UI can show that honestly instead of presenting
+// a guess as fact.
+function fillEventTimestamps<T extends { createdAt: unknown; eventType: string }>(
   eventsOldestFirst: T[],
-  shipmentCreatedAt: unknown,
+  shipment: ShipmentDateAnchors | null | undefined,
 ): (T & { estimatedTime: boolean })[] {
-  const filled: (T & { estimatedTime: boolean })[] = eventsOldestFirst.map(e => ({
-    ...e,
-    estimatedTime: !isValidEventDate(e.createdAt),
-  }));
+  const values: unknown[] = eventsOldestFirst.map(e => {
+    if (isValidEventDate(e.createdAt)) return e.createdAt;
+    const anchorField = EVENT_TYPE_SHIPMENT_DATE_FIELD[e.eventType];
+    const anchorValue = anchorField && shipment ? shipment[anchorField] : null;
+    return isValidEventDate(anchorValue) ? anchorValue : null;
+  });
+  const genuine = values.map(isValidEventDate);
 
-  let lastKnown = shipmentCreatedAt;
-  for (let i = 0; i < filled.length; i++) {
-    if (!filled[i].estimatedTime) {
-      lastKnown = filled[i].createdAt;
+  let lastKnown: unknown = shipment?.createdAt ?? null;
+  for (let i = 0; i < values.length; i++) {
+    if (genuine[i]) {
+      lastKnown = values[i];
     } else if (isValidEventDate(lastKnown)) {
-      filled[i] = { ...filled[i], createdAt: lastKnown };
+      values[i] = lastKnown;
     }
   }
 
   let nextKnown: unknown = null;
-  for (let i = filled.length - 1; i >= 0; i--) {
-    if (isValidEventDate(eventsOldestFirst[i].createdAt)) {
-      nextKnown = eventsOldestFirst[i].createdAt;
-    } else if (!isValidEventDate(filled[i].createdAt) && isValidEventDate(nextKnown)) {
-      filled[i] = { ...filled[i], createdAt: nextKnown };
+  for (let i = values.length - 1; i >= 0; i--) {
+    if (genuine[i]) {
+      nextKnown = values[i];
+    } else if (!isValidEventDate(values[i]) && isValidEventDate(nextKnown)) {
+      values[i] = nextKnown;
     }
   }
 
-  return filled;
+  return eventsOldestFirst.map((e, i) => ({
+    ...e,
+    createdAt: values[i],
+    estimatedTime: !isValidEventDate(e.createdAt),
+  }));
 }
 
 export const shipmentRouter = createRouter({
@@ -749,7 +777,7 @@ export const shipmentRouter = createRouter({
       // in getTrackingHistory/recentActivity below for the full story) --
       // id is auto-increment and always reflects true insertion order.
       const rawEvents = await db.select().from(trackingEvents).where(eq(trackingEvents.shipmentId, input.id)).orderBy(trackingEvents.id);
-      const events = fillEventTimestamps(rawEvents, shipment[0].createdAt);
+      const events = fillEventTimestamps(rawEvents, shipment[0]);
       const creator = await db.select({ name: users.name }).from(users).where(eq(users.id, shipment[0].createdBy)).limit(1);
 
       // Enrich tracking events with actor names
@@ -1025,11 +1053,17 @@ export const shipmentRouter = createRouter({
     .input(z.object({ shipmentId: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
-      const shipment = await db.select({ createdAt: shipments.createdAt }).from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+      const shipment = await db.select({
+        createdAt: shipments.createdAt,
+        labeledAt: shipments.labeledAt,
+        assignedAt: shipments.assignedAt,
+        deliveredAt: shipments.deliveredAt,
+        completedAt: shipments.completedAt,
+      }).from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
       const rawEvents = await db.select().from(trackingEvents)
         .where(eq(trackingEvents.shipmentId, input.shipmentId))
         .orderBy(trackingEvents.id);
-      return fillEventTimestamps(rawEvents, shipment[0]?.createdAt ?? null);
+      return fillEventTimestamps(rawEvents, shipment[0] ?? null);
     }),
 
   // ── ANALYTICS / REPORTS ──
@@ -1157,16 +1191,27 @@ export const shipmentRouter = createRouter({
 
       const ids = [...new Set(events.map(e => e.shipmentId))];
       const shipmentRows = ids.length > 0
-        ? await db.select({ id: shipments.id, trackingId: shipments.trackingId, createdAt: shipments.createdAt }).from(shipments).where(inArray(shipments.id, ids))
+        ? await db.select({
+            id: shipments.id,
+            trackingId: shipments.trackingId,
+            createdAt: shipments.createdAt,
+            labeledAt: shipments.labeledAt,
+            assignedAt: shipments.assignedAt,
+            deliveredAt: shipments.deliveredAt,
+            completedAt: shipments.completedAt,
+          }).from(shipments).where(inArray(shipments.id, ids))
         : [];
 
       return {
         events: events.map(e => {
           const shipmentRow = shipmentRows.find(s => s.id === e.shipmentId);
           const validTime = isValidEventDate(e.createdAt);
+          const anchorField = EVENT_TYPE_SHIPMENT_DATE_FIELD[e.eventType];
+          const anchorValue = anchorField && shipmentRow ? shipmentRow[anchorField] : null;
+          const fallback = isValidEventDate(anchorValue) ? anchorValue : shipmentRow?.createdAt;
           return {
             ...e,
-            createdAt: validTime ? e.createdAt : (shipmentRow?.createdAt ?? e.createdAt),
+            createdAt: validTime ? e.createdAt : (fallback ?? e.createdAt),
             estimatedTime: !validTime,
             trackingId: shipmentRow?.trackingId || `#${e.shipmentId}`,
           };
