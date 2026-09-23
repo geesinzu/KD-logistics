@@ -1,5 +1,6 @@
 import { z } from "zod";
-import { eq, desc, and, sql, inArray, gte, lt } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { eq, desc, and, or, sql, inArray, gte, lt } from "drizzle-orm";
 import { shipments, trackingEvents, users, branches, thirdPartyLogistics, activityLog } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { createRouter, authedQuery, adminQuery, superAdminQuery, branchManagerQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
@@ -1072,7 +1073,7 @@ export const shipmentRouter = createRouter({
   // ── GET TRACKING EVENTS FOR A SHIPMENT ──
   getTrackingHistory: authedQuery
     .input(z.object({ shipmentId: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ ctx, input }) => {
       const db = getDb();
       const shipment = await db.select({
         createdAt: shipments.createdAt,
@@ -1080,10 +1081,30 @@ export const shipmentRouter = createRouter({
         assignedAt: shipments.assignedAt,
         deliveredAt: shipments.deliveredAt,
         completedAt: shipments.completedAt,
+        tplId: shipments.tplId,
       }).from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      const rawEvents = await db.select().from(trackingEvents)
+
+      // A 3PL may only view shipments assigned to their own company -- this
+      // endpoint previously had no check at all here, so any authenticated
+      // TPL account could pull any shipment's full history by id.
+      if (ctx.tplUser && shipment[0]?.tplId !== ctx.tplUser.tplId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to view this shipment" });
+      }
+
+      let rawEvents = await db.select().from(trackingEvents)
         .where(eq(trackingEvents.shipmentId, input.shipmentId))
         .orderBy(trackingEvents.id);
+
+      // 3PL only ever sees the shipment's story from the moment it was
+      // assigned to their company onward -- what happened at KEDI's
+      // warehouse before that isn't theirs to see. Uses the LATEST
+      // assigned_to_3pl event so a reassignment to a different 3PL
+      // correctly resets what the new company can see.
+      if (ctx.tplUser) {
+        const lastAssignIdx = rawEvents.map(e => e.eventType).lastIndexOf("assigned_to_3pl");
+        rawEvents = lastAssignIdx >= 0 ? rawEvents.slice(lastAssignIdx) : [];
+      }
+
       return fillEventTimestamps(rawEvents, shipment[0] ?? null);
     }),
 
@@ -1205,8 +1226,30 @@ export const shipmentRouter = createRouter({
       }
       if (shipmentIds && shipmentIds.length === 0) return { events: [] };
 
+      let eventsCondition = shipmentIds ? inArray(trackingEvents.shipmentId, shipmentIds) : undefined;
+
+      if (ctx.tplUser && shipmentIds && shipmentIds.length > 0) {
+        // 3PL only ever sees activity from the moment each shipment was
+        // assigned to their company onward -- what happened at KEDI's
+        // warehouse before that isn't theirs to see. Pushed into the SQL
+        // condition (not filtered after the fact) so `.limit(limit)` below
+        // applies to the already-scoped set, same fix as the Dashboard
+        // month-selector bug from earlier this session.
+        const assignEvents = await db.select({ shipmentId: trackingEvents.shipmentId, id: trackingEvents.id })
+          .from(trackingEvents)
+          .where(and(inArray(trackingEvents.shipmentId, shipmentIds), eq(trackingEvents.eventType, "assigned_to_3pl")))
+          .orderBy(trackingEvents.id);
+        const cutoffByShipment = new Map<number, number>();
+        for (const row of assignEvents) cutoffByShipment.set(row.shipmentId, row.id); // latest (highest id) wins
+
+        const scopedIds = [...cutoffByShipment.keys()];
+        eventsCondition = scopedIds.length > 0
+          ? or(...scopedIds.map(id => and(eq(trackingEvents.shipmentId, id), gte(trackingEvents.id, cutoffByShipment.get(id)!))))
+          : sql`1 = 0`; // no shipment has been assigned yet -- nothing to show
+      }
+
       const events = await db.select().from(trackingEvents)
-        .where(shipmentIds ? inArray(trackingEvents.shipmentId, shipmentIds) : undefined)
+        .where(eventsCondition)
         .orderBy(desc(trackingEvents.id))
         .limit(limit);
 
