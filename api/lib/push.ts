@@ -160,6 +160,16 @@ export async function notifyWarehouseProcessed(shipmentId: number, destBranchId:
   });
 }
 
+// When a driver is assigned to pick up and drop a shipment at a 3PL
+export async function notifyDriverAssigned(shipmentId: number, driverId: number, trackingId: string, tplName: string): Promise<void> {
+  await sendPushToUser(driverId, {
+    title: "New Pickup Assigned",
+    body: `Pick up shipment ${trackingId} and drop it at ${tplName}.`,
+    tag: `shipment-${shipmentId}`,
+    url: `/shipments/${shipmentId}`,
+  });
+}
+
 // When a 3PL is ASSIGNED (Step 4)
 export async function notify3plAssigned(shipmentId: number, tplId: number, trackingId: string, destBranchId: number): Promise<void> {
   const db = getDb();

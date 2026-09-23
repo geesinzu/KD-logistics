@@ -46,7 +46,7 @@ export default function Profile() {
   const utils = trpc.useUtils();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const { isSupported, isSubscribed, permission, subscribe, unsubscribe, isConfiguring, isServerConfigured } = usePushNotifications();
+  const { isSupported, isSubscribed, permission, subscribe, unsubscribe, isConfiguring, isServerConfigured, lastError } = usePushNotifications();
 
   const uploadMutation = trpc.user.uploadProfilePicture.useMutation({
     onSuccess: () => {
@@ -170,6 +170,11 @@ export default function Profile() {
                   <><Bell size={14} className="mr-1" /> Enable</>}
               </Button>
             </div>
+            {lastError && !isSubscribed && (
+              <p className="text-[10px] text-red-500 mt-2">
+                Last error: {lastError} — if you report an issue, include this code.
+              </p>
+            )}
           </CardContent>
         </Card>
       )}

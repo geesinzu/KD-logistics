@@ -5,7 +5,7 @@ import { getDb } from "./queries/connection";
 import { createRouter, authedQuery, adminQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
 import { BRANCH_TRACKING_CODES, SHIPMENT_STATUSES, STATUS_LABELS } from "@contracts/constants";
 import {
-  notifyShipmentCreated, notifyWarehouseProcessed, notify3plAssigned,
+  notifyShipmentCreated, notifyWarehouseProcessed, notify3plAssigned, notifyDriverAssigned,
   notify3plStatusUpdate, notifyShipmentDelivered, notifyShipmentCompleted,
 } from "./lib/push";
 
@@ -202,6 +202,9 @@ export const shipmentRouter = createRouter({
       const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
       if (shipment[0]) {
         void notify3plAssigned(input.shipmentId, input.tplId, shipment[0].trackingId || "N/A", shipment[0].destBranchId).catch(() => {});
+        if (input.tplPickupType === "kedi_driver_drop" && input.assignedDriverId) {
+          void notifyDriverAssigned(input.shipmentId, input.assignedDriverId, shipment[0].trackingId || "N/A", tplName).catch(() => {});
+        }
       }
 
       return { success: true, tplName };
@@ -997,6 +1000,10 @@ export const shipmentRouter = createRouter({
         shipmentIds = rows.map(r => r.id);
       } else if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
         const rows = await db.select({ id: shipments.id }).from(shipments).where(eq(shipments.destBranchId, ctx.user.branchId));
+        shipmentIds = rows.map(r => r.id);
+      } else if (ctx.tplUser) {
+        // 3PL users only ever see activity for shipments assigned to their own company.
+        const rows = await db.select({ id: shipments.id }).from(shipments).where(eq(shipments.tplId, ctx.tplUser.tplId));
         shipmentIds = rows.map(r => r.id);
       }
       if (shipmentIds && shipmentIds.length === 0) return { events: [] };

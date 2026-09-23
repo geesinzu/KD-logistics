@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +9,11 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { Truck, LogOut, MapPin, Package, CheckCircle2, Clock, ChevronDown, ChevronUp } from "lucide-react";
+import { Truck, LogOut, MapPin, Package, CheckCircle2, Clock, ChevronDown, ChevronUp, Bell, BellOff, Loader2 } from "lucide-react";
+import { usePushNotifications } from "@/hooks/usePushNotifications";
+import { useTplRecentActivity, useTplUnreadNotificationCount, markTplNotificationsSeen } from "@/hooks/useNotifications";
+import { EVENT_ICONS, EVENT_LABELS } from "@/lib/notificationEvents";
+import { formatDistanceToNow } from "date-fns";
 
 export default function TplPortal() {
   const [filter, setFilter] = useState("all");
@@ -23,9 +27,17 @@ export default function TplPortal() {
   const [notes, setNotes] = useState("");
   const [newDeliveryDate, setNewDeliveryDate] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [showNotifications, setShowNotifications] = useState(false);
 
   const utils = trpc.useUtils();
   const { data: me } = trpc.tpl.me.useQuery();
+  const unreadCount = useTplUnreadNotificationCount();
+  const { data: activityData, isLoading: activityLoading } = useTplRecentActivity(50);
+  const { isSupported, isSubscribed, permission, subscribe, unsubscribe, isConfiguring, isServerConfigured } = usePushNotifications("tpl");
+
+  useEffect(() => {
+    if (showNotifications) markTplNotificationsSeen(me?.id);
+  }, [showNotifications, me?.id]);
   const { data: shipmentsData, isLoading } = trpc.shipment.listForTpl.useQuery({ page: 1, limit: 50, status: filter === "all" ? undefined : filter === "active" ? undefined : filter });
 
   const { data: trackingHistory } = trpc.shipment.getTrackingHistory.useQuery(
@@ -123,7 +135,17 @@ export default function TplPortal() {
             <p className="text-[10px] text-white/60">{me?.tplName || "Loading..."}</p>
           </div>
         </div>
-        <button onClick={handleLogout} className="p-1.5 text-white/70 hover:text-white"><LogOut size={18} /></button>
+        <div className="flex items-center gap-1">
+          <button onClick={() => setShowNotifications(true)} className="relative p-1.5 text-white/70 hover:text-white" aria-label="Notifications">
+            <Bell size={18} />
+            {unreadCount > 0 && (
+              <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">
+                {unreadCount > 9 ? "9+" : unreadCount}
+              </span>
+            )}
+          </button>
+          <button onClick={handleLogout} className="p-1.5 text-white/70 hover:text-white"><LogOut size={18} /></button>
+        </div>
       </div>
 
       <div className="p-4 max-w-lg mx-auto">
@@ -347,6 +369,71 @@ export default function TplPortal() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Notifications Dialog */}
+      <Dialog open={showNotifications} onOpenChange={setShowNotifications}>
+        <DialogContent className="max-w-sm max-h-[80vh] flex flex-col">
+          <DialogHeader><DialogTitle>Notifications</DialogTitle></DialogHeader>
+
+          {isSupported && (
+            <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3 mb-1">
+              <div className="min-w-0">
+                <p className="text-xs font-medium">
+                  {!isServerConfigured && !isConfiguring ? "Push unavailable"
+                    : isSubscribed ? "Push notifications on"
+                    : permission === "denied" ? "Push blocked" : "Push notifications off"}
+                </p>
+                <p className="text-[10px] text-gray-400">
+                  {!isServerConfigured && !isConfiguring ? "Not set up on the server yet"
+                    : isSubscribed ? "You'll get alerts on this device"
+                    : permission === "denied" ? "Enable in browser settings" : "Get alerted when a shipment is assigned"}
+                </p>
+              </div>
+              <Button
+                size="sm"
+                variant={isSubscribed ? "outline" : "default"}
+                className={isSubscribed ? "text-red-600 border-red-200 shrink-0" : "bg-indigo-600 hover:bg-indigo-700 shrink-0"}
+                disabled={permission === "denied" || isConfiguring || (!isServerConfigured && !isSubscribed)}
+                onClick={async () => {
+                  if (isSubscribed) await unsubscribe();
+                  else await subscribe();
+                }}
+              >
+                {isConfiguring ? <Loader2 size={14} className="animate-spin" /> :
+                  isSubscribed ? <BellOff size={14} /> : <Bell size={14} />}
+              </Button>
+            </div>
+          )}
+
+          <div className="flex-1 overflow-y-auto space-y-2 -mx-1 px-1">
+            {activityLoading && <p className="text-sm text-gray-400 text-center py-8">Loading...</p>}
+            {!activityLoading && (activityData?.events?.length ?? 0) === 0 && (
+              <div className="text-center py-10">
+                <Bell size={28} className="mx-auto text-gray-300 mb-2" />
+                <p className="text-sm text-gray-400">No activity yet</p>
+              </div>
+            )}
+            {activityData?.events?.map(ev => {
+              const Icon = EVENT_ICONS[ev.eventType] || Bell;
+              return (
+                <div key={ev.id} className="flex items-start gap-3 p-2.5 rounded-lg hover:bg-gray-50">
+                  <div className="w-7 h-7 rounded-full bg-indigo-50 flex items-center justify-center shrink-0">
+                    <Icon size={14} className="text-indigo-600" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-xs font-semibold text-[#1E293B]">{EVENT_LABELS[ev.eventType] || ev.eventType}</span>
+                      <span className="text-[10px] text-gray-400 shrink-0">{formatDistanceToNow(new Date(ev.createdAt), { addSuffix: true })}</span>
+                    </div>
+                    <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-2">{ev.notes}</p>
+                    <p className="text-[10px] text-gray-400 mt-0.5">{ev.trackingId}</p>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

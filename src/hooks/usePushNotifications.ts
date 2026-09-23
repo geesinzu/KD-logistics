@@ -3,7 +3,7 @@ import { trpc } from "@/providers/trpc";
 
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/\-/g, "+").replace(/_/g, "/");
+  const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
   const rawData = window.atob(base64);
   const outputArray = new Uint8Array(rawData.length);
   for (let i = 0; i < rawData.length; ++i) {
@@ -12,15 +12,22 @@ function urlBase64ToUint8Array(base64String: string) {
   return outputArray;
 }
 
-export function usePushNotifications() {
+export function usePushNotifications(variant: "kedi" | "tpl" = "kedi") {
   const [isSupported, setIsSupported] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>("default");
   const [isChecking, setIsChecking] = useState(true);
+  const [lastError, setLastError] = useState<string | null>(null);
 
   const { data: vapidData } = trpc.push.vapidKey.useQuery();
-  const subscribeMutation = trpc.push.subscribe.useMutation();
-  const unsubscribeAllMutation = trpc.push.unsubscribeAll.useMutation();
+  // Both variants' mutations are declared unconditionally (rules of hooks) —
+  // only the one matching `variant` is ever actually invoked.
+  const kediSubscribeMutation = trpc.push.subscribe.useMutation();
+  const kediUnsubscribeMutation = trpc.push.unsubscribeAll.useMutation();
+  const tplSubscribeMutation = trpc.push.subscribeTpl.useMutation();
+  const tplUnsubscribeMutation = trpc.push.unsubscribeAllTpl.useMutation();
+  const subscribeMutation = variant === "tpl" ? tplSubscribeMutation : kediSubscribeMutation;
+  const unsubscribeAllMutation = variant === "tpl" ? tplUnsubscribeMutation : kediUnsubscribeMutation;
 
   // Check existing subscription on mount
   useEffect(() => {
@@ -53,33 +60,40 @@ export function usePushNotifications() {
   }, []);
 
   const subscribe = useCallback(async () => {
+    setLastError(null);
     // vapidData.key is the public key alone, returned unconditionally by the
     // server even when it's missing its private counterpart. vapidData.configured
     // reflects whether the server can actually SEND anything — without checking
     // it, subscribing "succeeds" (permission granted, subscription stored) but
     // every push silently no-ops server-side forever, with no error anywhere.
-    if (!isSupported || !vapidData?.key || !vapidData?.configured) return false;
+    if (!isSupported) { setLastError("not_supported"); return false; }
+    if (!vapidData?.key || !vapidData?.configured) { setLastError("server_not_configured"); return false; }
     try {
       const perm = await Notification.requestPermission();
       setPermission(perm);
-      if (perm !== "granted") return false;
+      if (perm !== "granted") { setLastError(`permission_${perm}`); return false; }
       const registration = await navigator.serviceWorker.ready;
       const subscription = await registration.pushManager.subscribe({
         userVisibleOnly: true,
         applicationServerKey: urlBase64ToUint8Array(vapidData.key),
       });
       const json = subscription.toJSON();
-      console.log("[Push] Subscribed:", json.endpoint?.substring(0, 40) + "...");
+      if (!json.endpoint || !json.keys?.p256dh || !json.keys?.auth) {
+        setLastError("incomplete_subscription");
+        return false;
+      }
+      console.log("[Push] Subscribed:", json.endpoint.substring(0, 40) + "...");
       await subscribeMutation.mutateAsync({
-        endpoint: json.endpoint!,
-        p256dh: json.keys?.p256dh!,
-        auth: json.keys?.auth!,
+        endpoint: json.endpoint,
+        p256dh: json.keys.p256dh,
+        auth: json.keys.auth,
         userAgent: navigator.userAgent,
       });
       setIsSubscribed(true);
       return true;
     } catch (err) {
       console.error("[Push] Subscription failed:", err);
+      setLastError(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
       return false;
     }
   }, [isSupported, vapidData, subscribeMutation]);
@@ -110,5 +124,9 @@ export function usePushNotifications() {
     // keys set. False (not undefined) while loading, so callers that only
     // want to know "definitely not available" can check `=== false`.
     isServerConfigured: vapidData?.configured ?? false,
+    // The specific reason the last subscribe() call failed, for diagnosing
+    // device/browser-specific failures (permission denied vs. server not
+    // configured vs. a genuine browser/PushManager error).
+    lastError,
   };
 }
