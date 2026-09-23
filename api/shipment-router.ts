@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { eq, desc, and, sql, inArray } from "drizzle-orm";
+import { eq, desc, and, sql, inArray, gte, lt } from "drizzle-orm";
 import { shipments, trackingEvents, users, branches, thirdPartyLogistics, activityLog } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { createRouter, authedQuery, adminQuery, superAdminQuery, branchManagerQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
@@ -592,6 +592,10 @@ export const shipmentRouter = createRouter({
         }
       }
       if (input?.tplId) conditions.push(eq(shipments.tplId, input.tplId));
+      if (input?.year && input?.month) {
+        conditions.push(gte(shipments.createdAt, new Date(input.year, input.month - 1, 1)));
+        conditions.push(lt(shipments.createdAt, new Date(input.year, input.month, 1)));
+      }
 
       if (ctx.user?.role === "driver") {
         conditions.push(eq(shipments.assignedDriverId, ctx.user.id));
@@ -603,7 +607,7 @@ export const shipmentRouter = createRouter({
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
 
-      let results = await db.select({
+      const results = await db.select({
         id: shipments.id,
         trackingId: shipments.trackingId,
         status: shipments.status,
@@ -623,15 +627,6 @@ export const shipmentRouter = createRouter({
         .orderBy(desc(shipments.createdAt))
         .limit(limit)
         .offset(offset);
-
-      // Filter by month/year if provided
-      if (input?.year && input?.month) {
-        results = results.filter(s => {
-          if (!s.createdAt) return false;
-          const d = new Date(s.createdAt);
-          return d.getFullYear() === input.year && d.getMonth() + 1 === input.month;
-        });
-      }
 
       const branchIds = [...new Set(results.map(s => s.destBranchId).filter(Boolean))];
       const branchList = branchIds.length > 0
@@ -885,25 +880,18 @@ export const shipmentRouter = createRouter({
     .input(z.object({ year: z.number().optional(), month: z.number().optional() }).optional())
     .query(async ({ ctx, input }) => {
       const db = getDb();
-      let allShipments = await db.select().from(shipments);
-
-      // Filter by month/year if provided
+      const conditions = [];
       if (input?.year && input?.month) {
-        allShipments = allShipments.filter(s => {
-          if (!s.createdAt) return false;
-          const d = new Date(s.createdAt);
-          return d.getFullYear() === input.year && d.getMonth() + 1 === input.month;
-        });
+        conditions.push(gte(shipments.createdAt, new Date(input.year, input.month - 1, 1)));
+        conditions.push(lt(shipments.createdAt, new Date(input.year, input.month, 1)));
+      }
+      if (ctx.user?.role === "driver") {
+        conditions.push(eq(shipments.assignedDriverId, ctx.user.id));
+      } else if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
+        conditions.push(eq(shipments.destBranchId, ctx.user.branchId));
       }
 
-      let filtered = allShipments;
-      if (ctx.user?.role === "driver") {
-        filtered = allShipments.filter(s => s.assignedDriverId === ctx.user!.id);
-      }
-      // Branch managers only see shipments to their branch
-      if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
-        filtered = allShipments.filter(s => s.destBranchId === ctx.user!.branchId);
-      }
+      const filtered = await db.select().from(shipments).where(conditions.length > 0 ? and(...conditions) : undefined);
       return {
         total: filtered.length,
         created: filtered.filter(s => s.status === "created").length,
