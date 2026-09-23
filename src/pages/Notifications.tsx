@@ -48,7 +48,7 @@ export default function Notifications() {
                   <div className="flex items-center justify-between gap-2">
                     <span className="text-sm font-semibold text-[#1E293B]">{EVENT_LABELS[ev.eventType] || ev.eventType}</span>
                     <span className="text-[10px] text-gray-400 shrink-0">
-                      {formatEventTime(ev.createdAt)}
+                      {formatEventTime(ev.createdAt, ev.estimatedTime)}
                     </span>
                   </div>
                   <p className="text-xs text-gray-500 mt-0.5 line-clamp-2">{ev.notes}</p>

@@ -239,7 +239,8 @@ export default function TplPortal() {
                             <div>
                               <p className="text-gray-700">{e.notes}</p>
                               <p className="text-[10px] text-gray-400">
-                                {e.createdAt ? new Date(e.createdAt).toLocaleString() : ""}
+                                {e.createdAt ? new Date(e.createdAt).toLocaleString() : "Unknown time"}
+                                {e.estimatedTime && <span className="text-amber-600 font-medium"> (approx.)</span>}
                                 {e.location ? ` @ ${e.location}` : ""}
                               </p>
                             </div>
@@ -422,7 +423,7 @@ export default function TplPortal() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-semibold text-[#1E293B]">{EVENT_LABELS[ev.eventType] || ev.eventType}</span>
-                      <span className="text-[10px] text-gray-400 shrink-0">{formatEventTime(ev.createdAt)}</span>
+                      <span className="text-[10px] text-gray-400 shrink-0">{formatEventTime(ev.createdAt, ev.estimatedTime)}</span>
                     </div>
                     <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-2">{ev.notes}</p>
                     <p className="text-[10px] text-gray-400 mt-0.5">{ev.trackingId}</p>

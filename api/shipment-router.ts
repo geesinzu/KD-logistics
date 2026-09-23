@@ -34,6 +34,35 @@ async function getDriverName(db: any, driverId: number): Promise<string> {
   return driver[0]?.name || `Driver #${driverId}`;
 }
 
+function isValidEventDate(d: unknown): boolean {
+  if (!d) return false;
+  const time = new Date(d as string).getTime();
+  return !isNaN(time) && new Date(d as string).getFullYear() >= 2000;
+}
+
+// Some legacy tracking_events rows have a corrupted created_at (originally
+// NULL; forcing the column NOT NULL during a schema push coerced those to a
+// value that reads back as null/invalid, not their true original time --
+// that value is gone and can't be recovered from this column alone).
+// Forward-fills each invalid timestamp from the nearest earlier valid one in
+// the same shipment's true insertion order (events must already be sorted by
+// id, oldest first), seeded by the shipment's own createdAt for anything
+// before the first valid event. Flags which ones were filled in so the UI
+// can show that honestly instead of presenting a guess as fact.
+function fillEventTimestamps<T extends { createdAt: unknown }>(
+  eventsOldestFirst: T[],
+  shipmentCreatedAt: unknown,
+): (T & { estimatedTime: boolean })[] {
+  let lastKnown = shipmentCreatedAt;
+  return eventsOldestFirst.map(e => {
+    if (isValidEventDate(e.createdAt)) {
+      lastKnown = e.createdAt;
+      return { ...e, estimatedTime: false };
+    }
+    return { ...e, createdAt: lastKnown, estimatedTime: true };
+  });
+}
+
 export const shipmentRouter = createRouter({
   // ── CREATE SHIPMENT (Step 1) ──
   create: shipmentCreatorQuery
@@ -695,7 +724,8 @@ export const shipmentRouter = createRouter({
       // doesn't reflect when they actually happened (see the id-based fix
       // in getTrackingHistory/recentActivity below for the full story) --
       // id is auto-increment and always reflects true insertion order.
-      const events = await db.select().from(trackingEvents).where(eq(trackingEvents.shipmentId, input.id)).orderBy(trackingEvents.id);
+      const rawEvents = await db.select().from(trackingEvents).where(eq(trackingEvents.shipmentId, input.id)).orderBy(trackingEvents.id);
+      const events = fillEventTimestamps(rawEvents, shipment[0].createdAt);
       const creator = await db.select({ name: users.name }).from(users).where(eq(users.id, shipment[0].createdBy)).limit(1);
 
       // Enrich tracking events with actor names
@@ -971,10 +1001,11 @@ export const shipmentRouter = createRouter({
     .input(z.object({ shipmentId: z.number() }))
     .query(async ({ input }) => {
       const db = getDb();
-      const events = await db.select().from(trackingEvents)
+      const shipment = await db.select({ createdAt: shipments.createdAt }).from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+      const rawEvents = await db.select().from(trackingEvents)
         .where(eq(trackingEvents.shipmentId, input.shipmentId))
         .orderBy(trackingEvents.id);
-      return events;
+      return fillEventTimestamps(rawEvents, shipment[0]?.createdAt ?? null);
     }),
 
   // ── ANALYTICS / REPORTS ──
@@ -1102,14 +1133,20 @@ export const shipmentRouter = createRouter({
 
       const ids = [...new Set(events.map(e => e.shipmentId))];
       const shipmentRows = ids.length > 0
-        ? await db.select({ id: shipments.id, trackingId: shipments.trackingId }).from(shipments).where(inArray(shipments.id, ids))
+        ? await db.select({ id: shipments.id, trackingId: shipments.trackingId, createdAt: shipments.createdAt }).from(shipments).where(inArray(shipments.id, ids))
         : [];
 
       return {
-        events: events.map(e => ({
-          ...e,
-          trackingId: shipmentRows.find(s => s.id === e.shipmentId)?.trackingId || `#${e.shipmentId}`,
-        })),
+        events: events.map(e => {
+          const shipmentRow = shipmentRows.find(s => s.id === e.shipmentId);
+          const validTime = isValidEventDate(e.createdAt);
+          return {
+            ...e,
+            createdAt: validTime ? e.createdAt : (shipmentRow?.createdAt ?? e.createdAt),
+            estimatedTime: !validTime,
+            trackingId: shipmentRow?.trackingId || `#${e.shipmentId}`,
+          };
+        }),
       };
     }),
 });

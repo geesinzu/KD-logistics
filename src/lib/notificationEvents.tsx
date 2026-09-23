@@ -41,15 +41,16 @@ export const EVENT_LABELS: Record<string, string> = {
   delivery_acknowledged: "Delivery Acknowledged",
 };
 
-// A handful of legacy tracking_events rows have created_at as NULL in the
-// database (predates the column's NOT NULL DEFAULT CURRENT_TIMESTAMP being
-// applied on the real MariaDB table). new Date(null) evaluates to the Unix
-// epoch, which formatDistanceToNow then renders as a coherent-looking but
-// wrong "56 years ago" — so this needs an explicit guard, not a try/catch
-// around the rendering call.
-export function formatEventTime(createdAt: unknown): string {
+// A handful of legacy tracking_events rows have a corrupted created_at (see
+// fillEventTimestamps on the backend, which now fills these in with the
+// nearest known-good time and flags them via `estimated`). This still keeps
+// its own guard in case a value ever slips through unfilled -- "Unknown
+// time" beats new Date(null) silently rendering a coherent-looking but
+// wrong "56 years ago".
+export function formatEventTime(createdAt: unknown, estimated?: boolean): string {
   if (!createdAt) return "Unknown time";
   const date = new Date(createdAt as string);
   if (isNaN(date.getTime()) || date.getFullYear() < 2000) return "Unknown time";
-  return formatDistanceToNow(date, { addSuffix: true });
+  const relative = formatDistanceToNow(date, { addSuffix: true });
+  return estimated ? `~${relative} (approx.)` : relative;
 }
