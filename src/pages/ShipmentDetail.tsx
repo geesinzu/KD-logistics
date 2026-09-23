@@ -12,7 +12,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { ArrowLeft, MapPin, User, Phone, Truck, QrCode, Trash2, AlertTriangle } from "lucide-react";
+import { ArrowLeft, MapPin, User, Phone, Truck, QrCode, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react";
 import { toast } from "sonner";
 
 export default function ShipmentDetail() {
@@ -28,6 +28,10 @@ export default function ShipmentDetail() {
   const canLogistics = role && ["super_admin", "admin", "logistics_officer"].includes(role);
   const isDriverAssigned = shipment?.assignedDriverId === user?.id;
   const isSuperAdmin = role === "super_admin";
+  const canAcknowledge = role && (
+    ["super_admin", "admin"].includes(role) ||
+    (role === "branch_manager" && shipment?.destBranchId === user?.branchId)
+  );
 
   const [showDeleteShipment, setShowDeleteShipment] = useState(false);
   const [deleteReason, setDeleteReason] = useState("");
@@ -45,6 +49,16 @@ export default function ShipmentDetail() {
     onSuccess: () => {
       toast.success("Event deleted");
       utils.shipment.getById.invalidate({ id: Number(id) });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const acknowledgeDeliveryMutation = trpc.shipment.acknowledgeDelivery.useMutation({
+    onSuccess: () => {
+      toast.success("Delivery acknowledged");
+      utils.shipment.getById.invalidate({ id: Number(id) });
+      utils.shipment.list.invalidate();
+      utils.shipment.attentionStats.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -157,6 +171,16 @@ export default function ShipmentDetail() {
           {shipment.status === "picked_up" && isDriverAssigned && (
             <Button className="w-full bg-[#003B7A] hover:bg-[#002B5A] h-12" onClick={() => navigate(`/scan?action=dropoff&shipmentId=${shipment.id}`)}>
               <MapPin size={16} className="mr-2" /> Scan at 3PL Drop-off
+            </Button>
+          )}
+          {shipment.status === "delivered" && canAcknowledge && (
+            <Button
+              className="w-full bg-green-600 hover:bg-green-700 h-12"
+              disabled={acknowledgeDeliveryMutation.isPending}
+              onClick={() => acknowledgeDeliveryMutation.mutate({ shipmentId: shipment.id })}
+            >
+              <CheckCircle2 size={16} className="mr-2" />
+              {acknowledgeDeliveryMutation.isPending ? "Acknowledging..." : "Acknowledge Receipt"}
             </Button>
           )}
           {shipment.qrCodeToken && (

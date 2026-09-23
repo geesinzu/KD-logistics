@@ -43,7 +43,7 @@ export default function Dashboard() {
   const kpis = [
     { label: "Active Shipments", value: stats?.active ?? 0, icon: Package, color: "bg-blue-50 text-blue-700" },
     { label: "Pending Label", value: stats?.created ?? 0, icon: Clock, color: "bg-yellow-50 text-yellow-700" },
-    { label: "In Transit", value: stats?.active ?? 0, icon: Truck, color: "bg-indigo-50 text-indigo-700" },
+    { label: "In Transit", value: stats?.inTransit ?? 0, icon: Truck, color: "bg-indigo-50 text-indigo-700" },
     { label: "Delivered", value: stats?.delivered ?? 0, icon: CheckCircle, color: "bg-green-50 text-green-700" },
   ];
 
@@ -139,8 +139,8 @@ export default function Dashboard() {
           <CardContent className="p-4">
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs opacity-80">Today's Deliveries</p>
-                <p className="text-3xl font-bold">{recentShipments?.shipments?.filter(s => s.assignedDriverId === user?.id).length ?? 0}</p>
+                <p className="text-xs opacity-80">My Active Deliveries</p>
+                <p className="text-3xl font-bold">{stats?.active ?? 0}</p>
               </div>
               <Truck size={32} className="opacity-50" />
             </div>
@@ -160,6 +160,21 @@ export default function Dashboard() {
             <p className="text-xs text-yellow-700 mb-2">{stats?.created ?? 0} shipments waiting for item count and label</p>
             <Button size="sm" className="w-full bg-yellow-600 hover:bg-yellow-700" onClick={() => navigate("/shipments")}>
               <Boxes size={14} className="mr-1" /> Process Shipments
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {role === "branch_manager" && (attention?.awaitingAcknowledgement ?? 0) > 0 && (
+        <Card className="border-0 shadow-sm mb-4 bg-green-50">
+          <CardContent className="p-4">
+            <div className="flex items-center gap-2 mb-2">
+              <CheckCircle size={18} className="text-green-600" />
+              <span className="text-sm font-semibold text-green-800">Awaiting Your Acknowledgement</span>
+            </div>
+            <p className="text-xs text-green-700 mb-2">{attention?.awaitingAcknowledgement ?? 0} shipment(s) delivered to your branch, ready to acknowledge</p>
+            <Button size="sm" className="w-full bg-green-600 hover:bg-green-700" onClick={() => navigate("/shipments")}>
+              View Shipments
             </Button>
           </CardContent>
         </Card>

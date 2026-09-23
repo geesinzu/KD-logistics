@@ -88,6 +88,19 @@ export const STATUS_LABELS: Record<string, string> = {
   cancelled: "Cancelled",
 };
 
+// Shipments that are "moving" — assigned and out of the warehouse, but not
+// yet delivered. Shared between attentionStats, flagOverdue, and stats
+// so the definition of "in transit" only lives in one place.
+export const IN_TRANSIT_STATUSES = [
+  "in_transit_with_3pl",
+  "picked_up",
+  "tpl_confirmed",
+  "at_3pl",
+  "picked_up_by_3pl",
+  "waiting_3pl_pickup",
+  "waiting_driver_pickup",
+] as const;
+
 export const STATUS_COLORS: Record<string, string> = {
   created: "bg-gray-100 text-gray-700",
   labeled: "bg-blue-50 text-blue-700",

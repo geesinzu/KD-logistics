@@ -2,8 +2,8 @@ import { z } from "zod";
 import { eq, desc, and, sql, inArray } from "drizzle-orm";
 import { shipments, trackingEvents, users, branches, thirdPartyLogistics, activityLog } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, authedQuery, adminQuery, superAdminQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
-import { BRANCH_TRACKING_CODES, SHIPMENT_STATUSES, STATUS_LABELS } from "@contracts/constants";
+import { createRouter, authedQuery, adminQuery, superAdminQuery, branchManagerQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
+import { BRANCH_TRACKING_CODES, SHIPMENT_STATUSES, STATUS_LABELS, IN_TRANSIT_STATUSES } from "@contracts/constants";
 import {
   notifyShipmentCreated, notifyWarehouseProcessed, notify3plAssigned, notifyDriverAssigned,
   notify3plStatusUpdate, notifyShipmentDelivered, notifyShipmentCompleted,
@@ -453,17 +453,33 @@ export const shipmentRouter = createRouter({
       return { success: true };
     }),
 
-  // ── COMPLETE SHIPMENT (Step 9) ──
-  complete: authedQuery
+  // ── BRANCH MANAGER: ACKNOWLEDGE DELIVERY (Step 9) ──
+  // A branch manager (or admin) confirms a fully-delivered shipment has been
+  // received, closing it out as "completed". Only valid from "delivered" --
+  // a partial delivery isn't done yet, so it isn't acknowledgeable.
+  acknowledgeDelivery: branchManagerQuery
     .input(z.object({ shipmentId: z.number() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      await db.update(shipments).set({ status: "completed", completedAt: new Date() }).where(eq(shipments.id, input.shipmentId));
-      // Push notification to destination branch managers
-      if (shipment[0]) {
-        void notifyShipmentCompleted(input.shipmentId, shipment[0].destBranchId, shipment[0].trackingId || "N/A").catch(() => {});
+      if (!shipment[0]) throw new Error("Shipment not found");
+      if (shipment[0].status !== "delivered") throw new Error("Only a fully delivered shipment can be acknowledged");
+      if (ctx.user.role === "branch_manager" && shipment[0].destBranchId !== ctx.user.branchId) {
+        throw new Error("You can only acknowledge deliveries to your own branch");
       }
+
+      await db.update(shipments).set({ status: "completed", completedAt: new Date() }).where(eq(shipments.id, input.shipmentId));
+      await db.insert(trackingEvents).values({
+        shipmentId: input.shipmentId,
+        eventType: "delivery_acknowledged",
+        oldStatus: "delivered",
+        newStatus: "completed",
+        notes: `Delivery acknowledged by ${ctx.user.name}.`,
+        createdBy: ctx.user.id,
+        actorRole: ctx.user.role,
+      });
+
+      void notifyShipmentCompleted(input.shipmentId, shipment[0].destBranchId, shipment[0].trackingId || "N/A").catch(() => {});
       return { success: true };
     }),
 
@@ -807,27 +823,27 @@ export const shipmentRouter = createRouter({
         created: filtered.filter(s => s.status === "created").length,
         labeled: filtered.filter(s => s.status === "labeled").length,
         active: filtered.filter(s => !["delivered", "completed", "cancelled"].includes(s.status)).length,
+        inTransit: filtered.filter(s => (IN_TRANSIT_STATUSES as readonly string[]).includes(s.status)).length,
         delivered: filtered.filter(s => s.status === "delivered" || s.status === "completed").length,
         cancelled: filtered.filter(s => s.status === "cancelled").length,
       };
     }),
 
-  // ── ATTENTION STATS (overdue / due soon) ──
+  // ── ATTENTION STATS (overdue / due soon / awaiting acknowledgement) ──
   attentionStats: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
     const now = new Date();
     const oneDayMs = 24 * 60 * 60 * 1000;
-    const activeStatuses = ["in_transit_with_3pl", "picked_up", "tpl_confirmed", "at_3pl", "picked_up_by_3pl", "waiting_3pl_pickup", "waiting_driver_pickup"];
 
     let query = db.select().from(shipments).where(and(
-      inArray(shipments.status, activeStatuses as any),
+      inArray(shipments.status, IN_TRANSIT_STATUSES as any),
       sql`${shipments.estimatedDeliveryDate} IS NOT NULL`
     ));
 
     // Branch managers only see shipments to their branch
     if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
       query = db.select().from(shipments).where(and(
-        inArray(shipments.status, activeStatuses as any),
+        inArray(shipments.status, IN_TRANSIT_STATUSES as any),
         sql`${shipments.estimatedDeliveryDate} IS NOT NULL`,
         eq(shipments.destBranchId, ctx.user.branchId)
       ));
@@ -844,7 +860,21 @@ export const shipmentRouter = createRouter({
       else if (diffMs < oneDayMs) dueSoon++;
       else onTrack++;
     }
-    return { overdue, dueSoon, onTrack, total: results.length };
+
+    // Delivered but not yet acknowledged by the destination branch manager.
+    // Kept separate from `total` below on purpose -- total drives the
+    // Dashboard's red/amber "Attention Required" banner, which is about
+    // overdue/due-soon shipments, not this unrelated action.
+    let awaitingAcknowledgement = 0;
+    if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
+      const delivered = await db.select({ id: shipments.id }).from(shipments).where(and(
+        eq(shipments.status, "delivered"),
+        eq(shipments.destBranchId, ctx.user.branchId)
+      ));
+      awaitingAcknowledgement = delivered.length;
+    }
+
+    return { overdue, dueSoon, onTrack, total: results.length, awaitingAcknowledgement };
   }),
 
   // ── FLAG OVERDUE SHIPMENTS ──
@@ -855,14 +885,13 @@ export const shipmentRouter = createRouter({
       const db = getDb();
       const now = new Date();
       const oneDayMs = 24 * 60 * 60 * 1000;
-      const activeStatuses = ["in_transit_with_3pl", "picked_up", "tpl_confirmed", "at_3pl", "picked_up_by_3pl", "waiting_3pl_pickup", "waiting_driver_pickup"];
 
       // If specific shipmentId provided, check just that one
       if (input?.shipmentId) {
         const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
         if (!shipment[0] || !shipment[0].estimatedDeliveryDate) return { flagged: 0 };
         const eta = new Date(shipment[0].estimatedDeliveryDate);
-        if (eta.getTime() - now.getTime() < 0 && activeStatuses.includes(shipment[0].status)) {
+        if (eta.getTime() - now.getTime() < 0 && (IN_TRANSIT_STATUSES as readonly string[]).includes(shipment[0].status)) {
           await db.insert(trackingEvents).values({
             shipmentId: input.shipmentId,
             eventType: "delay_reported",
@@ -879,7 +908,7 @@ export const shipmentRouter = createRouter({
 
       // Otherwise scan all active shipments with ETA
       const results = await db.select().from(shipments).where(and(
-        inArray(shipments.status, activeStatuses as any),
+        inArray(shipments.status, IN_TRANSIT_STATUSES as any),
         sql`${shipments.estimatedDeliveryDate} IS NOT NULL`
       ));
 

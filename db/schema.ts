@@ -169,6 +169,7 @@ export const trackingEvents = mysqlTable("tracking_events", {
     "delay_reported",
     "cancelled",
     "note_added",
+    "delivery_acknowledged",
   ]).notNull(),
   oldStatus: varchar("old_status", { length: 30 }),
   newStatus: varchar("new_status", { length: 30 }),

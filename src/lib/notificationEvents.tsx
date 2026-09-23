@@ -19,6 +19,7 @@ export const EVENT_ICONS: Record<string, typeof Bell> = {
   delay_reported: AlertTriangle,
   cancelled: AlertTriangle,
   note_added: ClipboardList,
+  delivery_acknowledged: CheckCircle2,
 };
 
 export const EVENT_LABELS: Record<string, string> = {
@@ -37,6 +38,7 @@ export const EVENT_LABELS: Record<string, string> = {
   delay_reported: "Delay Reported",
   cancelled: "Cancelled",
   note_added: "Note Added",
+  delivery_acknowledged: "Delivery Acknowledged",
 };
 
 // A handful of legacy tracking_events rows have created_at as NULL in the
