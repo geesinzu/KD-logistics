@@ -1,8 +1,8 @@
 import { z } from "zod";
 import { eq, desc, and, sql, inArray } from "drizzle-orm";
-import { shipments, trackingEvents, users, branches, thirdPartyLogistics } from "@db/schema";
+import { shipments, trackingEvents, users, branches, thirdPartyLogistics, activityLog } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, authedQuery, adminQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
+import { createRouter, authedQuery, adminQuery, superAdminQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
 import { BRANCH_TRACKING_CODES, SHIPMENT_STATUSES, STATUS_LABELS } from "@contracts/constants";
 import {
   notifyShipmentCreated, notifyWarehouseProcessed, notify3plAssigned, notifyDriverAssigned,
@@ -721,6 +721,60 @@ export const shipmentRouter = createRouter({
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
+      return { success: true };
+    }),
+
+  // ── SUPER ADMIN: PERMANENTLY DELETE A SHIPMENT ──
+  // Unlike cancel (soft, just flips status), this removes the shipment and
+  // its whole tracking history. Logged to activityLog since it's irreversible.
+  deleteShipment: superAdminQuery
+    .input(z.object({ shipmentId: z.number(), reason: z.string().min(3, "Please provide a reason") }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+      if (!shipment[0]) throw new Error("Shipment not found");
+
+      await db.insert(activityLog).values({
+        userId: ctx.user.id,
+        action: "delete_shipment",
+        entityType: "shipment",
+        entityId: input.shipmentId,
+        details: {
+          trackingId: shipment[0].trackingId,
+          reason: input.reason,
+          deletedBy: ctx.user.name,
+        },
+      });
+
+      await db.delete(trackingEvents).where(eq(trackingEvents.shipmentId, input.shipmentId));
+      await db.delete(shipments).where(eq(shipments.id, input.shipmentId));
+
+      return { success: true };
+    }),
+
+  // ── SUPER ADMIN: PERMANENTLY DELETE A SINGLE TRACKING EVENT ──
+  deleteTrackingEvent: superAdminQuery
+    .input(z.object({ eventId: z.number() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const event = await db.select().from(trackingEvents).where(eq(trackingEvents.id, input.eventId)).limit(1);
+      if (!event[0]) throw new Error("Event not found");
+
+      await db.insert(activityLog).values({
+        userId: ctx.user.id,
+        action: "delete_tracking_event",
+        entityType: "tracking_event",
+        entityId: input.eventId,
+        details: {
+          shipmentId: event[0].shipmentId,
+          eventType: event[0].eventType,
+          notes: event[0].notes,
+          deletedBy: ctx.user.name,
+        },
+      });
+
+      await db.delete(trackingEvents).where(eq(trackingEvents.id, input.eventId));
+
       return { success: true };
     }),
 

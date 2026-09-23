@@ -1,23 +1,58 @@
+import { useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogCancel,
+} from "@/components/ui/alert-dialog";
 import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { ArrowLeft, MapPin, User, Phone, Truck, QrCode } from "lucide-react";
+import { ArrowLeft, MapPin, User, Phone, Truck, QrCode, Trash2, AlertTriangle } from "lucide-react";
+import { toast } from "sonner";
 
 export default function ShipmentDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
   const role = user?.role;
+  const utils = trpc.useUtils();
 
   const { data: shipment, isLoading } = trpc.shipment.getById.useQuery({ id: Number(id) });
 
   const canWarehouse = role && ["super_admin", "admin", "warehouse_supply"].includes(role);
   const canLogistics = role && ["super_admin", "admin", "logistics_officer"].includes(role);
   const isDriverAssigned = shipment?.assignedDriverId === user?.id;
+  const isSuperAdmin = role === "super_admin";
+
+  const [showDeleteShipment, setShowDeleteShipment] = useState(false);
+  const [deleteReason, setDeleteReason] = useState("");
+
+  const deleteShipmentMutation = trpc.shipment.deleteShipment.useMutation({
+    onSuccess: () => {
+      toast.success("Shipment deleted");
+      utils.shipment.list.invalidate();
+      navigate("/shipments");
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const deleteEventMutation = trpc.shipment.deleteTrackingEvent.useMutation({
+    onSuccess: () => {
+      toast.success("Event deleted");
+      utils.shipment.getById.invalidate({ id: Number(id) });
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const handleDeleteEvent = (eventId: number) => {
+    if (!confirm("Permanently delete this tracking event? This cannot be undone.")) return;
+    deleteEventMutation.mutate({ eventId });
+  };
 
   if (isLoading) return <div className="p-4 text-center">Loading...</div>;
   if (!shipment) return <div className="p-4 text-center">Shipment not found</div>;
@@ -140,10 +175,22 @@ export default function ShipmentDetail() {
                 <div key={event.id} className="flex gap-3 relative">
                   {i < events.length - 1 && <div className="absolute left-[7px] top-6 w-0.5 h-full bg-gray-200" />}
                   <div className={`w-4 h-4 rounded-full mt-1 flex-shrink-0 ${i === events.length - 1 ? "bg-[#003B7A]" : "bg-gray-300"}`} />
-                  <div className="pb-4">
-                    <p className="text-[10px] font-bold text-[#003B7A]">{event.actorName || "Unknown"}</p>
-                    <p className="text-xs font-medium">{event.notes || event.eventType}</p>
-                    <p className="text-[10px] text-gray-400">{event.createdAt ? new Date(event.createdAt).toLocaleString() : ""}</p>
+                  <div className="pb-4 flex-1 flex items-start justify-between gap-2">
+                    <div>
+                      <p className="text-[10px] font-bold text-[#003B7A]">{event.actorName || "Unknown"}</p>
+                      <p className="text-xs font-medium">{event.notes || event.eventType}</p>
+                      <p className="text-[10px] text-gray-400">{event.createdAt ? new Date(event.createdAt).toLocaleString() : ""}</p>
+                    </div>
+                    {isSuperAdmin && (
+                      <button
+                        onClick={() => handleDeleteEvent(event.id)}
+                        disabled={deleteEventMutation.isPending}
+                        className="p-1 text-gray-300 hover:text-red-600 transition-colors flex-shrink-0"
+                        aria-label="Delete event"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
@@ -151,7 +198,56 @@ export default function ShipmentDetail() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Danger Zone — Super Admin only */}
+        {isSuperAdmin && (
+          <Card className="border border-red-200 shadow-sm mb-4">
+            <CardContent className="p-4">
+              <h3 className="text-xs font-semibold text-red-600 uppercase mb-1 flex items-center gap-1">
+                <AlertTriangle size={12} /> Danger Zone
+              </h3>
+              <p className="text-xs text-gray-500 mb-3">Permanently delete this shipment and its entire tracking history. This cannot be undone.</p>
+              <Button
+                variant="outline"
+                className="w-full text-red-600 border-red-200 hover:bg-red-50"
+                onClick={() => setShowDeleteShipment(true)}
+              >
+                <Trash2 size={14} className="mr-2" /> Delete Shipment Permanently
+              </Button>
+            </CardContent>
+          </Card>
+        )}
       </div>
+
+      <AlertDialog open={showDeleteShipment} onOpenChange={(open) => { setShowDeleteShipment(open); if (!open) setDeleteReason(""); }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete {shipment.trackingId || `shipment #${shipment.id}`}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This permanently removes the shipment and its full tracking history from the database. This cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div>
+            <Label htmlFor="delete-reason">Reason *</Label>
+            <Textarea
+              id="delete-reason"
+              value={deleteReason}
+              onChange={e => setDeleteReason(e.target.value)}
+              placeholder="Why is this shipment being deleted?"
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={deleteReason.trim().length < 3 || deleteShipmentMutation.isPending}
+              onClick={() => deleteShipmentMutation.mutate({ shipmentId: shipment.id, reason: deleteReason.trim() })}
+            >
+              {deleteShipmentMutation.isPending ? "Deleting..." : "Delete Permanently"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
