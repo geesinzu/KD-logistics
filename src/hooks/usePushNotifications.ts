@@ -53,7 +53,12 @@ export function usePushNotifications() {
   }, []);
 
   const subscribe = useCallback(async () => {
-    if (!isSupported || !vapidData?.key) return false;
+    // vapidData.key is the public key alone, returned unconditionally by the
+    // server even when it's missing its private counterpart. vapidData.configured
+    // reflects whether the server can actually SEND anything — without checking
+    // it, subscribing "succeeds" (permission granted, subscription stored) but
+    // every push silently no-ops server-side forever, with no error anywhere.
+    if (!isSupported || !vapidData?.key || !vapidData?.configured) return false;
     try {
       const perm = await Notification.requestPermission();
       setPermission(perm);
@@ -101,5 +106,9 @@ export function usePushNotifications() {
     subscribe,
     unsubscribe,
     isConfiguring: subscribeMutation.isPending || unsubscribeAllMutation.isPending || isChecking,
+    // True once the vapidKey query has resolved and the server has both VAPID
+    // keys set. False (not undefined) while loading, so callers that only
+    // want to know "definitely not available" can check `=== false`.
+    isServerConfigured: vapidData?.configured ?? false,
   };
 }

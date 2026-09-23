@@ -29,6 +29,7 @@ export default function Assign3pl() {
     onSuccess: () => {
       utils.shipment.list.invalidate();
       utils.shipment.getById.invalidate({ id: Number(id) });
+      utils.shipment.recentActivity.invalidate();
       navigate("/shipments");
     },
     onError: (err) => setError(err.message),

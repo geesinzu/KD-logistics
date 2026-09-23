@@ -46,7 +46,7 @@ export default function Profile() {
   const utils = trpc.useUtils();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const { isSupported, isSubscribed, permission, subscribe, unsubscribe, isConfiguring } = usePushNotifications();
+  const { isSupported, isSubscribed, permission, subscribe, unsubscribe, isConfiguring, isServerConfigured } = usePushNotifications();
 
   const uploadMutation = trpc.user.uploadProfilePicture.useMutation({
     onSuccess: () => {
@@ -138,17 +138,21 @@ export default function Profile() {
             <div className="flex items-center justify-between">
               <div>
                 <p className="text-sm font-medium">
-                  {isSubscribed ? "Notifications enabled" : permission === "denied" ? "Notifications blocked" : "Notifications disabled"}
+                  {!isServerConfigured && !isConfiguring ? "Notifications unavailable"
+                    : isSubscribed ? "Notifications enabled"
+                    : permission === "denied" ? "Notifications blocked" : "Notifications disabled"}
                 </p>
                 <p className="text-xs text-gray-400">
-                  {isSubscribed ? "You'll receive alerts for shipment events" : permission === "denied" ? "Enable in browser settings" : "Get notified when shipments arrive"}
+                  {!isServerConfigured && !isConfiguring ? "Not set up on the server yet — contact an admin"
+                    : isSubscribed ? "You'll receive alerts for shipment events"
+                    : permission === "denied" ? "Enable in browser settings" : "Get notified when shipments arrive"}
                 </p>
               </div>
               <Button
                 size="sm"
                 variant={isSubscribed ? "outline" : "default"}
                 className={isSubscribed ? "text-red-600 border-red-200" : "bg-[#003B7A]"}
-                disabled={permission === "denied" || isConfiguring}
+                disabled={permission === "denied" || isConfiguring || (!isServerConfigured && !isSubscribed)}
                 onClick={async () => {
                   if (isSubscribed) {
                     await unsubscribe();
@@ -156,6 +160,7 @@ export default function Profile() {
                   } else {
                     const ok = await subscribe();
                     if (ok) toast.success("Push notifications enabled");
+                    else if (!isServerConfigured) toast.error("Push notifications aren't set up on the server yet");
                     else toast.error("Failed to enable notifications");
                   }
                 }}

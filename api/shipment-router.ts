@@ -69,7 +69,7 @@ export const shipmentRouter = createRouter({
       // Push notification to destination branch managers
       const branch = await db.select().from(branches).where(eq(branches.id, input.destBranchId)).limit(1);
       const trackingId = branch[0] ? generateTrackingId(branch[0].name) : "pending";
-      void notifyShipmentCreated(shipmentId, input.destBranchId, trackingId).catch(() => {});
+      void notifyShipmentCreated(shipmentId, input.destBranchId, trackingId, ctx.user.id).catch(() => {});
       return { success: true, shipmentId };
     }),
 

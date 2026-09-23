@@ -23,6 +23,7 @@ export default function CreateShipment() {
   const createMutation = trpc.shipment.create.useMutation({
     onSuccess: () => {
       utils.shipment.list.invalidate();
+      utils.shipment.recentActivity.invalidate();
       navigate("/shipments");
     },
     onError: (err) => setError(err.message),

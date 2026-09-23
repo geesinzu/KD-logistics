@@ -42,6 +42,7 @@ export default function WarehouseProcess() {
       setResult({ trackingId: data.trackingId, qrToken: data.qrToken });
       utils.shipment.list.invalidate();
       utils.shipment.getById.invalidate({ id: Number(id) });
+      utils.shipment.recentActivity.invalidate();
     },
     onError: (err) => setError(err.message),
   });

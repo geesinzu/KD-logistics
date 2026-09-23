@@ -30,7 +30,7 @@ export function useRecentActivity(limit = 30) {
   const { user } = useAuth();
   return trpc.shipment.recentActivity.useQuery(
     { limit },
-    { enabled: !!user, refetchInterval: 60_000 },
+    { enabled: !!user, refetchInterval: 20_000 },
   );
 }
 
