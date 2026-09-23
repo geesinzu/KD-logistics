@@ -22,13 +22,13 @@ export function AppLayout() {
   ];
 
   return (
-    <div className="flex flex-col h-screen bg-[#F8FAFC]">
+    <div className="flex flex-col h-screen bg-ground">
       <Toaster position="top-center" richColors />
-      <header className="flex items-center justify-between px-4 h-12 bg-white border-b border-gray-100 shrink-0">
+      <header className="flex items-center justify-between px-4 h-12 bg-white border-b border-[#E8E4DC] shrink-0">
         <img src="/kedi-logo.png" alt="KEDI" className="h-6" />
         <button
           onClick={() => navigate("/notifications")}
-          className="relative p-1.5 text-gray-500 hover:text-[#003B7A] transition-colors"
+          className="relative p-1.5 text-gray-500 hover:text-navy transition-colors"
           aria-label="Notifications"
         >
           <Bell size={20} />
@@ -42,12 +42,12 @@ export function AppLayout() {
       <main className="flex-1 overflow-y-auto pb-20">
         <Outlet />
       </main>
-      <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-gray-100 shadow-[0_-2px_10px_rgba(0,0,0,0.05)] z-50 flex items-center justify-around px-2">
+      <nav className="fixed bottom-0 left-0 right-0 h-16 bg-white border-t border-[#E8E4DC] shadow-[0_-2px_10px_rgba(0,0,0,0.05)] z-50 flex items-center justify-around px-2">
         {tabs.map(tab => {
           const isActive = location.pathname === tab.path || (tab.path !== "/" && location.pathname.startsWith(tab.path));
           return (
             <button key={tab.path} onClick={() => navigate(tab.path)}
-              className={`flex flex-col items-center justify-center w-16 h-full rounded-lg transition-colors ${isActive ? "text-[#003B7A]" : "text-gray-400"}`}>
+              className={`flex flex-col items-center justify-center w-16 h-full rounded-lg transition-colors ${isActive ? "text-navy" : "text-gray-400"}`}>
               <tab.icon size={22} strokeWidth={isActive ? 2.5 : 1.5} />
               <span className={`text-[10px] mt-0.5 ${isActive ? "font-medium" : ""}`}>{tab.label}</span>
             </button>
