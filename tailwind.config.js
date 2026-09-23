@@ -48,6 +48,14 @@ module.exports = {
           border: "hsl(var(--sidebar-border))",
           ring: "hsl(var(--sidebar-ring))",
         },
+        navy: { DEFAULT: "#14294D", soft: "#EFF2F7" },
+        clay: { DEFAULT: "#C2703D", soft: "#F7E9E0" },
+        ink: { DEFAULT: "#1B1F27", soft: "#5B6270" },
+        ground: "#FAF9F6",
+      },
+      fontFamily: {
+        sans: ["'IBM Plex Sans'", "ui-sans-serif", "system-ui", "sans-serif"],
+        display: ["'Space Grotesk'", "ui-sans-serif", "system-ui", "sans-serif"],
       },
       borderRadius: {
         xl: "calc(var(--radius) + 4px)",

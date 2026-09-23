@@ -69,11 +69,11 @@ export default function Shipments() {
   }
 
   return (
-    <div className="p-4 max-w-lg mx-auto">
+    <div className="p-4 max-w-lg mx-auto bg-ground min-h-full">
       <div className="flex items-center justify-between mb-3">
-        <h1 className="text-lg font-bold text-[#1E293B]">Shipments</h1>
+        <h1 className="text-xl font-bold font-display text-ink">Shipments</h1>
         {canCreate && (
-          <Button size="sm" className="bg-[#003B7A] hover:bg-[#002B5A] h-9" onClick={() => navigate("/shipments/create")}>
+          <Button size="sm" className="bg-navy hover:bg-[#0F2039] h-9 rounded-xl font-semibold" onClick={() => navigate("/shipments/create")}>
             <Plus size={14} className="mr-1" /> New
           </Button>
         )}
@@ -81,17 +81,17 @@ export default function Shipments() {
 
       {/* Search */}
       <div className="relative mb-3">
-        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-        <Input className="pl-9 h-10" placeholder="Search by tracking ID..." value={search} onChange={e => setSearch(e.target.value)} />
+        <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft" />
+        <Input className="pl-9 h-11 rounded-2xl border-[#E8E4DC] bg-white" placeholder="Search by tracking ID..." value={search} onChange={e => setSearch(e.target.value)} />
       </div>
 
       {/* Status filter tabs with counts */}
-      <div className="flex gap-1 overflow-x-auto pb-2 mb-3 scrollbar-hide">
+      <div className="flex gap-1.5 overflow-x-auto pb-2 mb-3 scrollbar-hide">
         {tabKeys.map(key => (
           <button key={key} onClick={() => setStatus(key)}
-            className={`px-3 py-1 rounded-full text-[10px] whitespace-nowrap font-medium transition-colors inline-flex items-center gap-1 ${status === key ? "bg-[#003B7A] text-white" : "bg-gray-100 text-gray-600 hover:bg-gray-200"}`}>
+            className={`px-3 py-1.5 rounded-full text-[11px] whitespace-nowrap font-semibold transition-colors inline-flex items-center gap-1 ${status === key ? "bg-navy text-white" : "bg-white border border-[#E8E4DC] text-ink-soft hover:bg-navy-soft"}`}>
             {TAB_LABELS[key] || "All"}
-            <span className={`text-[9px] px-1 py-0.5 rounded-full ${status === key ? "bg-white/20 text-white" : "bg-gray-200 text-gray-500"}`}>
+            <span className={`text-[9px] px-1 py-0.5 rounded-full ${status === key ? "bg-white/20 text-white" : "bg-[#EEF1F4] text-ink-soft"}`}>
               {tabCounts[key] ?? 0}
             </span>
           </button>
@@ -99,25 +99,25 @@ export default function Shipments() {
       </div>
 
       {/* Shipments list */}
-      {isLoading && <div className="text-center py-8 text-gray-400">Loading...</div>}
+      {isLoading && <div className="text-center py-8 text-ink-soft">Loading...</div>}
       <div className="space-y-2">
-        {data?.shipments?.length === 0 && <div className="text-center py-8 text-gray-400">No shipments found</div>}
+        {data?.shipments?.length === 0 && <div className="text-center py-8 text-ink-soft">No shipments found</div>}
         {data?.shipments?.map(s => (
-          <Card key={s.id} className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate(`/shipments/${s.id}`)}>
-            <CardContent className="p-3">
+          <Card key={s.id} className="border border-[#E8E4DC] shadow-none rounded-2xl cursor-pointer hover:border-navy/30 transition-colors" onClick={() => navigate(`/shipments/${s.id}`)}>
+            <CardContent className="p-3.5">
               <div className="flex items-start justify-between">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-1">
-                    <span className="text-sm font-semibold text-[#003B7A]">{s.trackingId || `#${s.id}`}</span>
-                    <Badge className={`text-[9px] ${STATUS_COLORS[s.status] || ""}`}>{STATUS_LABELS[s.status] || s.status}</Badge>
+                    <span className="text-sm font-bold font-display text-ink">{s.trackingId || `#${s.id}`}</span>
+                    <Badge className={`text-[9px] rounded-full ${STATUS_COLORS[s.status] || ""}`}>{STATUS_LABELS[s.status] || s.status}</Badge>
                   </div>
-                  <p className="text-[11px] text-gray-500">To: {s.destinationBranch}</p>
-                  <p className="text-[11px] text-gray-500">{s.actualItemCount || s.estimatedItemCount || 0} items {s.receiverName ? `- ${s.receiverName}` : ""}</p>
+                  <p className="text-[11px] text-ink-soft">To: {s.destinationBranch}</p>
+                  <p className="text-[11px] text-ink-soft">{s.actualItemCount || s.estimatedItemCount || 0} items {s.receiverName ? `- ${s.receiverName}` : ""}</p>
                   {s.slaStatus && s.slaStatus !== "no_eta" && (
-                    <div className={`flex items-center gap-1 text-[10px] mt-0.5 font-medium ${
-                      s.slaStatus === "overdue" ? "text-red-600" :
-                      s.slaStatus === "due_soon" ? "text-amber-600" :
-                      "text-green-600"
+                    <div className={`flex items-center gap-1 text-[10px] mt-0.5 font-semibold ${
+                      s.slaStatus === "overdue" ? "text-[#B3261E]" :
+                      s.slaStatus === "due_soon" ? "text-[#B7791F]" :
+                      "text-[#1E7B4D]"
                     }`}>
                       {s.slaStatus === "overdue" && <AlertTriangle size={10} />}
                       {s.slaStatus === "due_soon" && <Clock size={10} />}
@@ -127,20 +127,20 @@ export default function Shipments() {
                     </div>
                   )}
                   {s.estimatedDeliveryDate && (
-                    <p className="text-[10px] text-gray-400">
+                    <p className="text-[10px] text-ink-soft/70">
                       ETA: {new Date(s.estimatedDeliveryDate).toLocaleDateString("en-NG", { weekday: "short", month: "short", day: "numeric" })}
                     </p>
                   )}
                 </div>
                 <div className="flex flex-col items-end gap-1">
                   {s.status === "created" && canWarehouse && (
-                    <Button size="sm" variant="outline" className="h-7 text-[10px] px-2"
+                    <Button size="sm" variant="outline" className="h-7 text-[10px] px-2 rounded-lg border-[#E8E4DC]"
                       onClick={e => { e.stopPropagation(); navigate(`/warehouse/${s.id}`); }}>
                       <QrCode size={12} className="mr-1" /> Label
                     </Button>
                   )}
                   {s.status === "labeled" && canLogistics && (
-                    <Button size="sm" variant="outline" className="h-7 text-[10px] px-2"
+                    <Button size="sm" variant="outline" className="h-7 text-[10px] px-2 rounded-lg border-[#E8E4DC]"
                       onClick={e => { e.stopPropagation(); navigate(`/assign-3pl/${s.id}`); }}>
                       <Truck size={12} className="mr-1" /> Assign
                     </Button>
