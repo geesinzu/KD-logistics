@@ -204,8 +204,12 @@ export default function ShipmentDetail() {
                       <p className="text-[10px] font-bold text-[#003B7A]">{event.actorName || "Unknown"}</p>
                       <p className="text-xs font-medium">{event.notes || event.eventType}</p>
                       <p className="text-[10px] text-gray-400">
-                        {event.createdAt ? new Date(event.createdAt).toLocaleString() : "Unknown time"}
-                        {event.estimatedTime && <span className="text-amber-600 font-medium"> (approx.)</span>}
+                        {event.createdAt ? (
+                          <>
+                            {new Date(event.createdAt).toLocaleString()}
+                            {event.estimatedTime && <span className="text-amber-600 font-medium"> (approx.)</span>}
+                          </>
+                        ) : "Unknown time"}
                       </p>
                     </div>
                     {isSuperAdmin && (

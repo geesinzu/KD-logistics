@@ -43,24 +43,48 @@ function isValidEventDate(d: unknown): boolean {
 // Some legacy tracking_events rows have a corrupted created_at (originally
 // NULL; forcing the column NOT NULL during a schema push coerced those to a
 // value that reads back as null/invalid, not their true original time --
-// that value is gone and can't be recovered from this column alone).
-// Forward-fills each invalid timestamp from the nearest earlier valid one in
-// the same shipment's true insertion order (events must already be sorted by
-// id, oldest first), seeded by the shipment's own createdAt for anything
-// before the first valid event. Flags which ones were filled in so the UI
-// can show that honestly instead of presenting a guess as fact.
+// that value is gone and can't be recovered from this column alone). Same
+// root cause can affect a shipment's own created_at too, which is why a
+// single forward-fill seeded by it isn't enough on its own: if the shipment's
+// createdAt is ALSO invalid and nothing earlier in its event sequence has a
+// real timestamp, forward-fill has nothing to inherit from.
+//
+// Two passes over events already sorted oldest-first (by id):
+//  1. Forward: carry the nearest earlier valid time forward, seeded by the
+//     shipment's own createdAt.
+//  2. Backward: anything still unfilled (nothing usable came before it)
+//     borrows the nearest LATER real timestamp in the same shipment instead.
+// Only borrows from genuinely real timestamps, never from another estimate,
+// so estimates don't compound. Flags every filled entry so the UI can show
+// that honestly instead of presenting a guess as fact.
 function fillEventTimestamps<T extends { createdAt: unknown }>(
   eventsOldestFirst: T[],
   shipmentCreatedAt: unknown,
 ): (T & { estimatedTime: boolean })[] {
+  const filled: (T & { estimatedTime: boolean })[] = eventsOldestFirst.map(e => ({
+    ...e,
+    estimatedTime: !isValidEventDate(e.createdAt),
+  }));
+
   let lastKnown = shipmentCreatedAt;
-  return eventsOldestFirst.map(e => {
-    if (isValidEventDate(e.createdAt)) {
-      lastKnown = e.createdAt;
-      return { ...e, estimatedTime: false };
+  for (let i = 0; i < filled.length; i++) {
+    if (!filled[i].estimatedTime) {
+      lastKnown = filled[i].createdAt;
+    } else if (isValidEventDate(lastKnown)) {
+      filled[i] = { ...filled[i], createdAt: lastKnown };
     }
-    return { ...e, createdAt: lastKnown, estimatedTime: true };
-  });
+  }
+
+  let nextKnown: unknown = null;
+  for (let i = filled.length - 1; i >= 0; i--) {
+    if (isValidEventDate(eventsOldestFirst[i].createdAt)) {
+      nextKnown = eventsOldestFirst[i].createdAt;
+    } else if (!isValidEventDate(filled[i].createdAt) && isValidEventDate(nextKnown)) {
+      filled[i] = { ...filled[i], createdAt: nextKnown };
+    }
+  }
+
+  return filled;
 }
 
 export const shipmentRouter = createRouter({

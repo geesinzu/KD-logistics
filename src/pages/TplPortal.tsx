@@ -239,8 +239,12 @@ export default function TplPortal() {
                             <div>
                               <p className="text-gray-700">{e.notes}</p>
                               <p className="text-[10px] text-gray-400">
-                                {e.createdAt ? new Date(e.createdAt).toLocaleString() : "Unknown time"}
-                                {e.estimatedTime && <span className="text-amber-600 font-medium"> (approx.)</span>}
+                                {e.createdAt ? (
+                                  <>
+                                    {new Date(e.createdAt).toLocaleString()}
+                                    {e.estimatedTime && <span className="text-amber-600 font-medium"> (approx.)</span>}
+                                  </>
+                                ) : "Unknown time"}
                                 {e.location ? ` @ ${e.location}` : ""}
                               </p>
                             </div>
