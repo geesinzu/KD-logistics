@@ -115,6 +115,35 @@ function fillEventTimestamps<T extends { createdAt: unknown; eventType: string }
   }));
 }
 
+// Compares actual delivery/completion time against the ETA set at 3PL
+// assignment -- the same comparison `analytics` already aggregates into
+// the Reports page's on-time rate, surfaced per shipment instead. Only
+// meaningful once a shipment is actually done; "no_eta" covers both a
+// shipment that never had an ETA recorded and the (shouldn't-happen) case
+// of a done shipment missing its finish timestamp -- both are honestly
+// "can't tell", not a guess either way.
+const DELIVERY_OUTCOME_STATUSES = ["delivered", "completed"];
+
+function computeDeliveryOutcome(
+  status: string,
+  estimatedDeliveryDate: unknown,
+  deliveredAt: unknown,
+  completedAt: unknown,
+): { deliveryOutcome: "on_time" | "late" | "no_eta" | null; daysLate: number | null } {
+  if (!DELIVERY_OUTCOME_STATUSES.includes(status)) return { deliveryOutcome: null, daysLate: null };
+  if (!isValidEventDate(estimatedDeliveryDate)) return { deliveryOutcome: "no_eta", daysLate: null };
+
+  const finishedAt = deliveredAt ?? completedAt;
+  if (!isValidEventDate(finishedAt)) return { deliveryOutcome: "no_eta", daysLate: null };
+
+  const finishedMs = new Date(finishedAt as string).getTime();
+  const etaMs = new Date(estimatedDeliveryDate as string).getTime();
+  if (finishedMs <= etaMs) return { deliveryOutcome: "on_time", daysLate: 0 };
+
+  const daysLate = Math.ceil((finishedMs - etaMs) / (24 * 60 * 60 * 1000));
+  return { deliveryOutcome: "late", daysLate };
+}
+
 export const shipmentRouter = createRouter({
   // ── CREATE SHIPMENT (Step 1) ──
   create: shipmentCreatorQuery
@@ -619,6 +648,8 @@ export const shipmentRouter = createRouter({
         assignedDriverId: shipments.assignedDriverId,
         priority: shipments.priority,
         estimatedDeliveryDate: shipments.estimatedDeliveryDate,
+        deliveredAt: shipments.deliveredAt,
+        completedAt: shipments.completedAt,
         createdAt: shipments.createdAt,
         updatedAt: shipments.updatedAt,
       })
@@ -656,6 +687,7 @@ export const shipmentRouter = createRouter({
           tplName: tplList.find(t => t.id === s.tplId)?.name || null,
           slaStatus,
           daysUntilEta: eta && !isDone ? Math.ceil((eta.getTime() - now.getTime()) / oneDayMs) : null,
+          ...computeDeliveryOutcome(s.status, s.estimatedDeliveryDate, s.deliveredAt, s.completedAt),
         };
       });
 
@@ -801,6 +833,7 @@ export const shipmentRouter = createRouter({
         driverPhone: driver[0]?.phone || null,
         creatorName: creator[0]?.name || "Unknown",
         trackingEvents: enrichedEvents,
+        ...computeDeliveryOutcome(shipment[0].status, shipment[0].estimatedDeliveryDate, shipment[0].deliveredAt, shipment[0].completedAt),
       };
     }),
 

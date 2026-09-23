@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { Plus, Search, QrCode, Truck, Clock, AlertTriangle } from "lucide-react";
+import { Plus, Search, QrCode, Truck, Clock, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 export default function Shipments() {
   const navigate = useNavigate();
@@ -130,6 +130,16 @@ export default function Shipments() {
                     <p className="text-[10px] text-ink-soft/70">
                       ETA: {new Date(s.estimatedDeliveryDate).toLocaleDateString("en-NG", { weekday: "short", month: "short", day: "numeric" })}
                     </p>
+                  )}
+                  {s.deliveryOutcome === "on_time" && (
+                    <div className="flex items-center gap-1 text-[10px] mt-0.5 font-semibold text-[#1E7B4D]">
+                      <CheckCircle2 size={10} /> On time
+                    </div>
+                  )}
+                  {s.deliveryOutcome === "late" && (
+                    <div className="flex items-center gap-1 text-[10px] mt-0.5 font-semibold text-[#B3261E]">
+                      <AlertTriangle size={10} /> Overdue by {s.daysLate} day{s.daysLate === 1 ? "" : "s"}
+                    </div>
                   )}
                 </div>
                 <div className="flex flex-col items-end gap-1">

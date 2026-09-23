@@ -84,10 +84,29 @@ export default function ShipmentDetail() {
 
       <div className="p-4">
         {/* Status badge */}
-        <div className="flex justify-center mb-4">
+        <div className="flex flex-col items-center gap-1.5 mb-4">
           <Badge className={`text-xs px-3 py-1 rounded-full ${STATUS_COLORS[shipment.status] || ""}`}>
             {STATUS_LABELS[shipment.status] || shipment.status}
           </Badge>
+          {shipment.deliveryOutcome === "on_time" && (
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-[#1E7B4D]">
+              <CheckCircle2 size={14} />
+              On time{shipment.estimatedDeliveryDate && (shipment.deliveredAt || shipment.completedAt) && (
+                <> &middot; delivered {new Date((shipment.deliveredAt || shipment.completedAt)!).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}, ETA {new Date(shipment.estimatedDeliveryDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</>
+              )}
+            </div>
+          )}
+          {shipment.deliveryOutcome === "late" && (
+            <div className="flex items-center gap-1.5 text-xs font-semibold text-[#B3261E]">
+              <AlertTriangle size={14} />
+              Overdue by {shipment.daysLate} day{shipment.daysLate === 1 ? "" : "s"}{shipment.estimatedDeliveryDate && (shipment.deliveredAt || shipment.completedAt) && (
+                <> &middot; delivered {new Date((shipment.deliveredAt || shipment.completedAt)!).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}, ETA {new Date(shipment.estimatedDeliveryDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</>
+              )}
+            </div>
+          )}
+          {shipment.deliveryOutcome === "no_eta" && (
+            <span className="text-xs font-medium text-ink-soft">No ETA was recorded for this shipment</span>
+          )}
         </div>
 
         {/* Route */}
