@@ -1,6 +1,7 @@
 import { Outlet, useNavigate, useLocation } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useUnreadNotificationCount } from "@/hooks/useNotifications";
+import { usePushSelfHeal } from "@/hooks/usePushNotifications";
 import { Home, Package, Users, ScanLine, UserCircle, Bell } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 
@@ -9,6 +10,7 @@ export function AppLayout() {
   const location = useLocation();
   const { user } = useAuth();
   const unreadCount = useUnreadNotificationCount();
+  usePushSelfHeal();
 
   const role = user?.role;
   const isAdmin = role === "super_admin" || role === "admin";

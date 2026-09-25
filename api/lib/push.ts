@@ -26,46 +26,52 @@ type UserRole = (typeof users.$inferSelect)["role"];
 
 // ── LOW-LEVEL SENDERS ──
 
+export interface DeliveryResult {
+  ok: boolean;
+  // The push service's HTTP status when it refused: 404/410 = subscription
+  // expired (removed here), 401/403 = the server's VAPID identity was
+  // rejected or doesn't match the one the phone subscribed with.
+  statusCode?: number;
+}
+
+// The one place a push actually leaves the server. Reports the outcome
+// instead of swallowing it, so callers that care (the "enable" test message)
+// can tell the user it didn't arrive. The push service's own reason text
+// (e.g. Apple's "BadJwtToken") is logged, since that's what identifies why.
+export async function deliverPush(
+  sub: { endpoint: string; p256dh: string; auth: string },
+  payload: PushPayload,
+): Promise<DeliveryResult> {
+  if (!isPushConfigured()) return { ok: false };
+  try {
+    await webPush.sendNotification(
+      { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
+      JSON.stringify(payload)
+    );
+    console.log(`[Push] ✅ Sent to ${sub.endpoint.substring(0, 40)}...`);
+    return { ok: true };
+  } catch (err: any) {
+    const reason = typeof err.body === "string" ? err.body.slice(0, 120) : "";
+    console.error(`[Push] ❌ Failed (${err.statusCode}): ${sub.endpoint.substring(0, 40)}... ${reason}`);
+    if (err.statusCode === 410 || err.statusCode === 404) {
+      await getDb().delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, sub.endpoint));
+    }
+    return { ok: false, statusCode: err.statusCode };
+  }
+}
+
 export async function sendPushToUser(userId: number, payload: PushPayload): Promise<void> {
   if (!isPushConfigured()) return;
-  const db = getDb();
-  const subs = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
+  const subs = await getDb().select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
   console.log(`[Push] User ${userId}: ${subs.length} subscription(s). Sending: "${payload.title}"`);
-  for (const sub of subs) {
-    try {
-      await webPush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        JSON.stringify(payload)
-      );
-      console.log(`[Push] ✅ Sent to ${sub.endpoint.substring(0, 40)}...`);
-    } catch (err: any) {
-      console.error(`[Push] ❌ Failed (${err.statusCode}): ${sub.endpoint.substring(0, 40)}...`);
-      if (err.statusCode === 410 || err.statusCode === 404) {
-        await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, sub.id));
-      }
-    }
-  }
+  for (const sub of subs) await deliverPush(sub, payload);
 }
 
 export async function sendPushToTplUser(tplUserId: number, payload: PushPayload): Promise<void> {
   if (!isPushConfigured()) return;
-  const db = getDb();
-  const subs = await db.select().from(pushSubscriptions).where(eq(pushSubscriptions.tplUserId, tplUserId));
+  const subs = await getDb().select().from(pushSubscriptions).where(eq(pushSubscriptions.tplUserId, tplUserId));
   console.log(`[Push] TPL User ${tplUserId}: ${subs.length} subscription(s). Sending: "${payload.title}"`);
-  for (const sub of subs) {
-    try {
-      await webPush.sendNotification(
-        { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth } },
-        JSON.stringify(payload)
-      );
-      console.log(`[Push] ✅ Sent to ${sub.endpoint.substring(0, 40)}...`);
-    } catch (err: any) {
-      console.error(`[Push] ❌ Failed (${err.statusCode}): ${sub.endpoint.substring(0, 40)}...`);
-      if (err.statusCode === 410 || err.statusCode === 404) {
-        await db.delete(pushSubscriptions).where(eq(pushSubscriptions.id, sub.id));
-      }
-    }
-  }
+  for (const sub of subs) await deliverPush(sub, payload);
 }
 
 // Send to ALL active users with any of the given roles

@@ -173,8 +173,10 @@ export default function Profile() {
                     await unsubscribe();
                     toast.success("Push notifications disabled");
                   } else {
-                    const ok = await subscribe();
-                    if (ok) toast.success("Push notifications enabled");
+                    const result = await subscribe();
+                    if (result.ok && result.testDelivered === false) {
+                      toast.warning(`Enabled, but the test notification couldn't be delivered${result.failureCode ? ` (code ${result.failureCode})` : ""}. Please tell an admin.`);
+                    } else if (result.ok) toast.success("Push notifications enabled");
                     else if (!isServerConfigured) toast.error("Push notifications aren't set up on the server yet");
                     else toast.error("Failed to enable notifications");
                   }
@@ -185,7 +187,7 @@ export default function Profile() {
                   <><Bell size={14} className="mr-1" /> Enable</>}
               </Button>
             </div>
-            {lastError && !isSubscribed && (
+            {lastError && (
               <p className="text-[10px] text-red-500 mt-2">
                 Last error: {lastError} — if you report an issue, include this code.
               </p>

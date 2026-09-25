@@ -32,7 +32,7 @@ export default function TplPortal() {
   const { data: me } = trpc.tpl.me.useQuery();
   const unreadCount = useTplUnreadNotificationCount();
   const { data: activityData, isLoading: activityLoading } = useTplRecentActivity(50);
-  const { isSupported, notSupportedReason, isSubscribed, permission, subscribe, unsubscribe, isConfiguring, isServerConfigured } = usePushNotifications("tpl");
+  const { isSupported, notSupportedReason, isSubscribed, permission, subscribe, unsubscribe, isConfiguring, isServerConfigured, lastError: pushError } = usePushNotifications("tpl");
 
   useEffect(() => {
     if (showNotifications) markTplNotificationsSeen(me?.id);
@@ -418,6 +418,11 @@ export default function TplPortal() {
                   isSubscribed ? <BellOff size={14} /> : <Bell size={14} />}
               </Button>
             </div>
+          )}
+          {isSupported && pushError && (
+            <p className="text-[10px] text-red-500 mb-1">
+              Push problem: {pushError} — if you report an issue, include this code.
+            </p>
           )}
 
           <div className="flex-1 overflow-y-auto space-y-2 -mx-1 px-1">
