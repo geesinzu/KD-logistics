@@ -46,7 +46,7 @@ export default function Profile() {
   const utils = trpc.useUtils();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
-  const { isSupported, isSubscribed, permission, subscribe, unsubscribe, isConfiguring, isServerConfigured, lastError } = usePushNotifications();
+  const { isSupported, notSupportedReason, isSubscribed, permission, subscribe, unsubscribe, isConfiguring, isServerConfigured, lastError } = usePushNotifications();
 
   const uploadMutation = trpc.user.uploadProfilePicture.useMutation({
     onSuccess: () => {
@@ -129,6 +129,21 @@ export default function Profile() {
       </Card>
 
       {/* Push Notifications */}
+      {notSupportedReason && (
+        <Card className="border-0 shadow-sm mb-4">
+          <CardContent className="p-4">
+            <h3 className="text-xs font-semibold text-gray-500 uppercase mb-2 flex items-center gap-1">
+              <BellOff size={12} /> Push Notifications
+            </h3>
+            <p className="text-sm font-medium">Not available on this device</p>
+            <p className="text-xs text-gray-400 mt-1">
+              {notSupportedReason === "ios_not_installed"
+                ? "On iPhone, push notifications only work when this app is opened from its Home Screen icon — not from Safari or a shared link. Tap Share → Add to Home Screen, then always open it from that icon (not a browser tab)."
+                : "This browser doesn't support push notifications. On iPhone, use Safari (iOS 16.4+) and add this app to your Home Screen; on desktop, try a recent Chrome, Edge, or Firefox."}
+            </p>
+          </CardContent>
+        </Card>
+      )}
       {isSupported && (
         <Card className="border-0 shadow-sm mb-4">
           <CardContent className="p-4">
@@ -158,8 +173,10 @@ export default function Profile() {
                     await unsubscribe();
                     toast.success("Push notifications disabled");
                   } else {
-                    const ok = await subscribe();
-                    if (ok) toast.success("Push notifications enabled");
+                    const result = await subscribe();
+                    if (result.ok && result.testDelivered === false) {
+                      toast.warning(`Enabled, but the test notification couldn't be delivered${result.failureCode ? ` (code ${result.failureCode})` : ""}. Please tell an admin.`);
+                    } else if (result.ok) toast.success("Push notifications enabled");
                     else if (!isServerConfigured) toast.error("Push notifications aren't set up on the server yet");
                     else toast.error("Failed to enable notifications");
                   }
@@ -170,7 +187,7 @@ export default function Profile() {
                   <><Bell size={14} className="mr-1" /> Enable</>}
               </Button>
             </div>
-            {lastError && !isSubscribed && (
+            {lastError && (
               <p className="text-[10px] text-red-500 mt-2">
                 Last error: {lastError} — if you report an issue, include this code.
               </p>

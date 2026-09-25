@@ -8,6 +8,7 @@ import { BRANCH_TRACKING_CODES, SHIPMENT_STATUSES, STATUS_LABELS, IN_TRANSIT_STA
 import {
   notifyShipmentCreated, notifyWarehouseProcessed, notify3plAssigned, notifyDriverAssigned,
   notify3plStatusUpdate, notifyShipmentDelivered, notifyShipmentCompleted,
+  notifyDriverPickedUp, notifyDriverDroppedAtTpl, notifyDeliveryDateChanged, notifyShipmentCancelled,
 } from "./lib/push";
 
 function generateTrackingId(branchName: string): string {
@@ -180,7 +181,7 @@ export const shipmentRouter = createRouter({
       // Push notification to destination branch managers
       const branch = await db.select().from(branches).where(eq(branches.id, input.destBranchId)).limit(1);
       const trackingId = branch[0] ? generateTrackingId(branch[0].name) : "pending";
-      void notifyShipmentCreated(shipmentId, input.destBranchId, trackingId, ctx.user.id).catch(() => {});
+      void notifyShipmentCreated(shipmentId, input.destBranchId, trackingId).catch(() => {});
       return { success: true, shipmentId };
     }),
 
@@ -340,6 +341,8 @@ export const shipmentRouter = createRouter({
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
+
+      void notifyDriverPickedUp(input.shipmentId, ctx.user.name).catch(() => {});
       return { success: true };
     }),
 
@@ -368,6 +371,7 @@ export const shipmentRouter = createRouter({
         actorRole: ctx.user.role,
       });
 
+      void notifyDriverDroppedAtTpl(input.shipmentId, ctx.user.name, tplName).catch(() => {});
       return { success: true, message: `${tplName} has been notified to confirm receipt.` };
     }),
 
@@ -561,6 +565,8 @@ export const shipmentRouter = createRouter({
         actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
       });
 
+      const changedBy = ctx.user ? ctx.user.name : ctx.tplUser ? await getTplName(db, ctx.tplUser.tplId) : "Unknown";
+      void notifyDeliveryDateChanged(input.shipmentId, input.estimatedDeliveryDate, changedBy, ctx.user?.id).catch(() => {});
       return { success: true };
     }),
 
@@ -852,6 +858,8 @@ export const shipmentRouter = createRouter({
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
+
+      void notifyShipmentCancelled(input.shipmentId, ctx.user.name, input.reason, ctx.user.id).catch(() => {});
       return { success: true };
     }),
 
