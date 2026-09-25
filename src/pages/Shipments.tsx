@@ -29,6 +29,7 @@ export default function Shipments() {
     "assigned_to_3pl": "waiting_driver_pickup,waiting_3pl_pickup,at_3pl",
     "picked_up": "picked_up,picked_up_by_3pl",
     "in_transit_with_3pl": "tpl_confirmed,in_transit_with_3pl,partially_delivered",
+    "at_hub_onward": "at_hub,onward_in_transit",
     "delivered": "delivered",
     "completed": "completed",
     "cancelled": "cancelled",
@@ -40,6 +41,7 @@ export default function Shipments() {
     "assigned_to_3pl": "Assigned to 3PL",
     "picked_up": "Picked Up",
     "in_transit_with_3pl": "In Transit",
+    "at_hub_onward": "At Hub / Onward",
     "delivered": "Delivered",
     "completed": "Completed",
     "cancelled": "Cancelled",
@@ -111,7 +113,7 @@ export default function Shipments() {
                     <span className="text-sm font-bold font-display text-ink">{s.trackingId || `#${s.id}`}</span>
                     <Badge className={`text-[9px] rounded-full ${STATUS_COLORS[s.status] || ""}`}>{STATUS_LABELS[s.status] || s.status}</Badge>
                   </div>
-                  <p className="text-[11px] text-ink-soft">To: {s.destinationBranch}</p>
+                  <p className="text-[11px] text-ink-soft">To: {s.destinationBranch}{s.hubBranchName ? ` (via ${s.hubBranchName} hub)` : ""}</p>
                   <p className="text-[11px] text-ink-soft">{s.actualItemCount || s.estimatedItemCount || 0} items {s.receiverName ? `- ${s.receiverName}` : ""}</p>
                   {s.slaStatus && s.slaStatus !== "no_eta" && (
                     <div className={`flex items-center gap-1 text-[10px] mt-0.5 font-semibold ${

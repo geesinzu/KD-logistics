@@ -1,15 +1,26 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { eq, desc, and, or, sql, inArray, gte, lt } from "drizzle-orm";
+import { eq, desc, and, or, sql, inArray, gte, lt, lte } from "drizzle-orm";
 import { shipments, trackingEvents, users, branches, thirdPartyLogistics, activityLog } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, authedQuery, adminQuery, superAdminQuery, branchManagerQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
-import { BRANCH_TRACKING_CODES, SHIPMENT_STATUSES, STATUS_LABELS, IN_TRANSIT_STATUSES } from "@contracts/constants";
+import { createRouter, authedQuery, adminQuery, superAdminQuery, branchManagerQuery, branchOnlyQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
+import { BRANCH_TRACKING_CODES, SHIPMENT_STATUSES, STATUS_LABELS, IN_TRANSIT_STATUSES, TPL_DONE_STATUSES, ONWARD_STATUSES } from "@contracts/constants";
 import {
   notifyShipmentCreated, notifyWarehouseProcessed, notify3plAssigned, notifyDriverAssigned,
   notify3plStatusUpdate, notifyShipmentDelivered, notifyShipmentCompleted,
   notifyDriverPickedUp, notifyDriverDroppedAtTpl, notifyDeliveryDateChanged, notifyShipmentCancelled,
+  notifyDeliveredToHub, notifyHubAcknowledged, notifyOnwardDispatched, notifyBranchMarkedDelivered,
 } from "./lib/push";
+import {
+  receivingBranchId, statusAfterTplFullDelivery, hubAcknowledgeGuard, dispatchOnwardGuard,
+  finalAcknowledgeGuard, markReceivedGuard, receiptOutcome, receivedAtError,
+} from "./lib/shipment-flow";
+
+// A branch manager sees a shipment if it is going to their branch OR routed
+// through it as a hub. One definition, so the list, stats, attention counts
+// and activity feed can't drift apart on who counts as "their" shipments.
+const branchScope = (branchId: number) =>
+  or(eq(shipments.destBranchId, branchId), eq(shipments.hubBranchId, branchId));
 
 function generateTrackingId(branchName: string): string {
   const code = BRANCH_TRACKING_CODES[branchName] || "XX";
@@ -124,7 +135,7 @@ function fillEventTimestamps<T extends { createdAt: unknown; eventType: string }
 // shipment that never had an ETA recorded and the (shouldn't-happen) case
 // of a done shipment missing its finish timestamp -- both are honestly
 // "can't tell", not a guess either way.
-const DELIVERY_OUTCOME_STATUSES = ["delivered", "completed"];
+const DELIVERY_OUTCOME_STATUSES: readonly string[] = TPL_DONE_STATUSES;
 
 function computeDeliveryOutcome(
   status: string,
@@ -158,11 +169,15 @@ export const shipmentRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const branch = await db.select().from(branches).where(eq(branches.id, input.destBranchId)).limit(1);
       const result = await db.insert(shipments).values({
         createdBy: ctx.user.id,
         creatorRole: ctx.user.role,
         originBranchId: 19, // Lagos HQ
         destBranchId: input.destBranchId,
+        // Copied from the branch NOW so a later change to the branch's hub
+        // never rewrites the route of a shipment already in flight.
+        hubBranchId: branch[0]?.hubBranchId ?? null,
         receiverName: input.receiverName,
         receiverPhone: input.receiverPhone,
         description: input.description,
@@ -178,8 +193,7 @@ export const shipmentRouter = createRouter({
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
-      // Push notification to destination branch managers
-      const branch = await db.select().from(branches).where(eq(branches.id, input.destBranchId)).limit(1);
+      // Push notification to destination (and hub) branch managers
       const trackingId = branch[0] ? generateTrackingId(branch[0].name) : "pending";
       void notifyShipmentCreated(shipmentId, input.destBranchId, trackingId).catch(() => {});
       return { success: true, shipmentId };
@@ -489,11 +503,20 @@ export const shipmentRouter = createRouter({
           .where(eq(shipments.id, input.shipmentId));
         eventNotes = `Partial delivery: ${input.deliveredQty} items at ${input.location}. Remaining: ${remaining}`;
       } else if (input.updateType === "full_delivery") {
-        newStatus = "delivered";
+        // On a hub route the 3PL's job ends at the hub, not the final branch.
+        newStatus = statusAfterTplFullDelivery(shipment[0]);
+        const deliveredNow = new Date();
         await db.update(shipments)
-          .set({ status: "delivered", deliveredAt: new Date(), deliveredQty: shipment[0].actualItemCount, remainingQty: 0 })
+          .set({
+            status: newStatus,
+            deliveredAt: deliveredNow,
+            deliveredQty: shipment[0].actualItemCount,
+            remainingQty: 0,
+            deliveryReportedBy: "tpl",
+            ...(newStatus === "at_hub" ? { hubArrivedAt: deliveredNow } : {}),
+          })
           .where(eq(shipments.id, input.shipmentId));
-        eventNotes = `Full delivery completed at ${input.location}. All ${shipment[0].actualItemCount} items delivered.`;
+        eventNotes = `Full delivery completed at ${input.location}. All ${shipment[0].actualItemCount} items delivered${newStatus === "at_hub" ? " to the hub" : ""}.`;
       } else if (input.updateType === "delay_reported") {
         eventNotes = `Delay reported at ${input.location}: ${input.notes || ""}`;
       } else {
@@ -523,7 +546,11 @@ export const shipmentRouter = createRouter({
       // Notify ops team (and branch manager on full delivery)
       if (shipment[0].tplId) {
         if (input.updateType === "full_delivery") {
-          void notifyShipmentDelivered(input.shipmentId, shipment[0].destBranchId, shipment[0].trackingId || "N/A").catch(() => {});
+          if (newStatus === "at_hub") {
+            void notifyDeliveredToHub(input.shipmentId).catch(() => {});
+          } else {
+            void notifyShipmentDelivered(input.shipmentId, shipment[0].destBranchId, shipment[0].trackingId || "N/A").catch(() => {});
+          }
         } else {
           void notify3plStatusUpdate(
             input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A",
@@ -571,16 +598,20 @@ export const shipmentRouter = createRouter({
     }),
 
   // ── BRANCH MANAGER: ACKNOWLEDGE DELIVERY (Step 9) ──
-  // A branch manager (or admin) confirms a fully-delivered shipment has been
-  // received, closing it out as "completed". Only valid from "delivered" --
-  // a partial delivery isn't done yet, so it isn't acknowledgeable.
+  // The destination branch confirms the shipment has been received, closing it
+  // out as "completed". Direct route: valid from "delivered" only -- a partial
+  // delivery isn't done yet. Hub route: valid once the hub has sent it on
+  // ("onward_in_transit"); if the hub never recorded the dispatch, the final
+  // branch can still close it out from "at_hub" and the log says the step
+  // was skipped. Who may do this is unchanged from before.
   acknowledgeDelivery: branchManagerQuery
     .input(z.object({ shipmentId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
       if (!shipment[0]) throw new Error("Shipment not found");
-      if (shipment[0].status !== "delivered") throw new Error("Only a fully delivered shipment can be acknowledged");
+      const guard = finalAcknowledgeGuard(shipment[0]);
+      if (!guard.ok) throw new Error(guard.message);
       if (ctx.user.role === "branch_manager" && shipment[0].destBranchId !== ctx.user.branchId) {
         throw new Error("You can only acknowledge deliveries to your own branch");
       }
@@ -589,15 +620,196 @@ export const shipmentRouter = createRouter({
       await db.insert(trackingEvents).values({
         shipmentId: input.shipmentId,
         eventType: "delivery_acknowledged",
-        oldStatus: "delivered",
+        oldStatus: shipment[0].status,
         newStatus: "completed",
-        notes: `Delivery acknowledged by ${ctx.user.name}.`,
+        notes: guard.skippedOnward
+          ? `Delivery acknowledged by ${ctx.user.name}. The hub did not record the onward dispatch.`
+          : `Delivery acknowledged by ${ctx.user.name}.`,
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
 
       void notifyShipmentCompleted(input.shipmentId, shipment[0].destBranchId, shipment[0].trackingId || "N/A").catch(() => {});
       return { success: true };
+    }),
+
+  // ── HUB: ACKNOWLEDGE RECEIPT AT THE HUB (acknowledgement #1) ──
+  // Only the manager of the hub the shipment is routed through, not an admin:
+  // the person on record is the one who actually received it.
+  acknowledgeAtHub: branchOnlyQuery
+    .input(z.object({ shipmentId: z.number(), notes: z.string().optional() }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const rows = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+      const shipment = rows[0];
+      if (!shipment) throw new Error("Shipment not found");
+      if (shipment.hubBranchId !== ctx.user.branchId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only acknowledge shipments at your own hub" });
+      }
+      const guard = hubAcknowledgeGuard(shipment);
+      if (!guard.ok) throw new Error(guard.message);
+
+      await db.update(shipments)
+        .set({ hubAcknowledgedAt: new Date(), hubAcknowledgedBy: ctx.user.id })
+        .where(eq(shipments.id, input.shipmentId));
+      await db.insert(trackingEvents).values({
+        shipmentId: input.shipmentId,
+        eventType: "hub_acknowledged",
+        oldStatus: "at_hub",
+        newStatus: "at_hub",
+        notes: `Receipt acknowledged at the hub by ${ctx.user.name}. ${input.notes || ""}`.trim(),
+        createdBy: ctx.user.id,
+        actorRole: ctx.user.role,
+      });
+
+      void notifyHubAcknowledged(input.shipmentId, ctx.user.id).catch(() => {});
+      return { success: true };
+    }),
+
+  // ── HUB: DISPATCH ONWARD TO THE FINAL BRANCH ──
+  // Needs the hub's acknowledgement first (see dispatchOnwardGuard).
+  dispatchOnward: branchOnlyQuery
+    .input(z.object({
+      shipmentId: z.number(),
+      vehicle: z.string().min(1, "Enter the vehicle or driver"),
+      waybill: z.string().optional(),
+      expectedDate: z.string().optional(),
+      note: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const rows = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+      const shipment = rows[0];
+      if (!shipment) throw new Error("Shipment not found");
+      if (shipment.hubBranchId !== ctx.user.branchId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only dispatch shipments from your own hub" });
+      }
+      const guard = dispatchOnwardGuard(shipment);
+      if (!guard.ok) throw new Error(guard.message);
+
+      const destName = (await db.select().from(branches).where(eq(branches.id, shipment.destBranchId)).limit(1))[0]?.name || "the branch";
+      await db.update(shipments)
+        .set({
+          status: "onward_in_transit",
+          onwardDispatchedAt: new Date(),
+          onwardDetails: {
+            vehicle: input.vehicle,
+            waybill: input.waybill || null,
+            expectedDate: input.expectedDate || null,
+            note: input.note || null,
+          },
+        })
+        .where(eq(shipments.id, input.shipmentId));
+      await db.insert(trackingEvents).values({
+        shipmentId: input.shipmentId,
+        eventType: "onward_dispatched",
+        oldStatus: "at_hub",
+        newStatus: "onward_in_transit",
+        notes: [
+          `Dispatched onward to ${destName} by ${ctx.user.name}.`,
+          `Vehicle/driver: ${input.vehicle}.`,
+          input.waybill ? `Waybill: ${input.waybill}.` : "",
+          input.note || "",
+        ].filter(Boolean).join(" "),
+        createdBy: ctx.user.id,
+        actorRole: ctx.user.role,
+      });
+
+      void notifyOnwardDispatched(input.shipmentId, input.expectedDate, ctx.user.id).catch(() => {});
+      return { success: true };
+    }),
+
+  // ── BRANCH: MARK RECEIVED (the 3PL never posted a delivery update) ──
+  // The receiving branch (the hub on a hub route, otherwise the destination)
+  // records what actually arrived and when. Only that branch's own manager,
+  // not an admin. "Time received" is what the 3PL's on-time result is judged
+  // against, so it is the real arrival time, not the moment of tapping.
+  // The quantity is the TOTAL received so far: full completes the receipt,
+  // short records a partial delivery and stays open for a later top-up.
+  markReceivedByBranch: branchOnlyQuery
+    .input(z.object({
+      shipmentId: z.number(),
+      receivedAt: z.string(),
+      receivedQty: z.number().int().min(1, "Enter how many items arrived"),
+      note: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const rows = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+      const shipment = rows[0];
+      if (!shipment) throw new Error("Shipment not found");
+      if (receivingBranchId(shipment) !== ctx.user.branchId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "You can only record receipt for shipments arriving at your own branch" });
+      }
+      const guard = markReceivedGuard(shipment);
+      if (!guard.ok) throw new Error(guard.message);
+
+      const now = new Date();
+      const receivedAt = new Date(input.receivedAt);
+      const timeError = receivedAtError(receivedAt, now, shipment.assignedAt ? new Date(shipment.assignedAt) : null);
+      if (timeError) throw new Error(timeError);
+
+      const expected = shipment.actualItemCount ?? shipment.estimatedItemCount ?? null;
+      const outcome = receiptOutcome(input.receivedQty, expected);
+      const isHubRoute = !!shipment.hubBranchId;
+      const branchName = (await db.select().from(branches).where(eq(branches.id, ctx.user.branchId!)).limit(1))[0]?.name || "Branch";
+      const noteText = input.note ? ` ${input.note}` : "";
+      const actor = { createdBy: ctx.user.id, actorRole: ctx.user.role };
+
+      if (outcome.kind === "partial") {
+        await db.update(shipments)
+          .set({ status: "partially_delivered", deliveredQty: input.receivedQty, remainingQty: outcome.remaining, deliveryReportedBy: "branch" })
+          .where(eq(shipments.id, input.shipmentId));
+        await db.insert(trackingEvents).values({
+          shipmentId: input.shipmentId,
+          eventType: "branch_marked_delivered",
+          oldStatus: shipment.status,
+          newStatus: "partially_delivered",
+          qtyDelivered: input.receivedQty,
+          qtyRemaining: outcome.remaining,
+          notes: `${branchName} recorded ${input.receivedQty} of ${expected} items received (3PL had not posted a delivery update). ${outcome.remaining} still to arrive.${noteText}`,
+          ...actor,
+        });
+        void notifyBranchMarkedDelivered(input.shipmentId, branchName, { received: input.receivedQty, expected: expected! }, ctx.user.id).catch(() => {});
+        return { success: true, completed: false, remaining: outcome.remaining };
+      }
+
+      const finalStatus = isHubRoute ? "at_hub" : "completed";
+      await db.update(shipments)
+        .set({
+          status: finalStatus,
+          deliveredAt: receivedAt,
+          deliveredQty: input.receivedQty,
+          remainingQty: 0,
+          deliveryReportedBy: "branch",
+          ...(isHubRoute
+            ? { hubArrivedAt: receivedAt, hubAcknowledgedAt: now, hubAcknowledgedBy: ctx.user.id }
+            : { completedAt: now }),
+        })
+        .where(eq(shipments.id, input.shipmentId));
+      await db.insert(trackingEvents).values({
+        shipmentId: input.shipmentId,
+        eventType: "branch_marked_delivered",
+        oldStatus: shipment.status,
+        newStatus: isHubRoute ? "at_hub" : "delivered",
+        qtyDelivered: input.receivedQty,
+        notes: `${branchName} recorded ${input.receivedQty} items received at ${receivedAt.toLocaleString("en-NG")} (3PL had not posted a delivery update).${noteText}`,
+        ...actor,
+      });
+      // Recording the arrival is also the receiving branch's acknowledgement.
+      await db.insert(trackingEvents).values({
+        shipmentId: input.shipmentId,
+        eventType: isHubRoute ? "hub_acknowledged" : "delivery_acknowledged",
+        oldStatus: isHubRoute ? "at_hub" : "delivered",
+        newStatus: finalStatus,
+        notes: isHubRoute
+          ? `Receipt acknowledged at the hub by ${ctx.user.name}.`
+          : `Delivery acknowledged by ${ctx.user.name}.`,
+        ...actor,
+      });
+
+      void notifyBranchMarkedDelivered(input.shipmentId, branchName, null, ctx.user.id).catch(() => {});
+      return { success: true, completed: !isHubRoute, remaining: 0 };
     }),
 
   // ── LIST SHIPMENTS ──
@@ -636,9 +848,9 @@ export const shipmentRouter = createRouter({
       if (ctx.user?.role === "driver") {
         conditions.push(eq(shipments.assignedDriverId, ctx.user.id));
       }
-      // Branch managers only see shipments to their branch
+      // Branch managers see shipments to their branch or routed through it
       if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
-        conditions.push(eq(shipments.destBranchId, ctx.user.branchId));
+        conditions.push(branchScope(ctx.user.branchId));
       }
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -648,6 +860,7 @@ export const shipmentRouter = createRouter({
         trackingId: shipments.trackingId,
         status: shipments.status,
         destBranchId: shipments.destBranchId,
+        hubBranchId: shipments.hubBranchId,
         receiverName: shipments.receiverName,
         actualItemCount: shipments.actualItemCount,
         estimatedItemCount: shipments.estimatedItemCount,
@@ -666,7 +879,7 @@ export const shipmentRouter = createRouter({
         .limit(limit)
         .offset(offset);
 
-      const branchIds = [...new Set(results.map(s => s.destBranchId).filter(Boolean))];
+      const branchIds = [...new Set(results.flatMap(s => [s.destBranchId, s.hubBranchId]).filter(Boolean))];
       const branchList = branchIds.length > 0
         ? await db.select().from(branches).where(inArray(branches.id, branchIds as number[]))
         : [];
@@ -680,7 +893,8 @@ export const shipmentRouter = createRouter({
       const oneDayMs = 24 * 60 * 60 * 1000;
       const enriched = results.map(s => {
         const eta = s.estimatedDeliveryDate ? new Date(s.estimatedDeliveryDate) : null;
-        const isDone = ["delivered", "completed", "cancelled"].includes(s.status);
+        // The ETA is the 3PL's deadline, so it stops mattering once their leg is done.
+        const isDone = s.status === "cancelled" || TPL_DONE_STATUSES.includes(s.status as (typeof TPL_DONE_STATUSES)[number]);
         let slaStatus: "no_eta" | "on_track" | "due_soon" | "overdue" = "no_eta";
         if (eta && !isDone) {
           const diffMs = eta.getTime() - now.getTime();
@@ -691,6 +905,7 @@ export const shipmentRouter = createRouter({
         return {
           ...s,
           destinationBranch: branchList.find(b => b.id === s.destBranchId)?.name || "Unknown",
+          hubBranchName: s.hubBranchId ? (branchList.find(b => b.id === s.hubBranchId)?.name || null) : null,
           tplName: tplList.find(t => t.id === s.tplId)?.name || null,
           slaStatus,
           daysUntilEta: eta && !isDone ? Math.ceil((eta.getTime() - now.getTime()) / oneDayMs) : null,
@@ -719,6 +934,9 @@ export const shipmentRouter = createRouter({
       const conditions = [];
       if (input?.status) {
         const statuses = input.status.split(",").map(s => s.trim()).filter(Boolean);
+        // For a 3PL, reaching the hub IS delivery, so the "delivered" filter
+        // must also find shipments that have moved on into the hub statuses.
+        if (statuses.includes("delivered")) statuses.push(...ONWARD_STATUSES);
         if (statuses.length === 1) {
           conditions.push(eq(shipments.status, statuses[0] as any));
         } else if (statuses.length > 1) {
@@ -740,6 +958,7 @@ export const shipmentRouter = createRouter({
         trackingId: shipments.trackingId,
         status: shipments.status,
         destBranchId: shipments.destBranchId,
+        hubBranchId: shipments.hubBranchId,
         receiverName: shipments.receiverName,
         actualItemCount: shipments.actualItemCount,
         itemDetails: shipments.itemDetails,
@@ -759,7 +978,7 @@ export const shipmentRouter = createRouter({
         .limit(input?.limit ?? 50)
         .offset(((input?.page ?? 1) - 1) * (input?.limit ?? 50));
 
-      const branchIds = [...new Set(results.map(s => s.destBranchId).filter(Boolean))];
+      const branchIds = [...new Set(results.flatMap(s => [s.destBranchId, s.hubBranchId]).filter(Boolean))];
       const branchList = branchIds.length > 0
         ? await db.select().from(branches).where(inArray(branches.id, branchIds as number[]))
         : [];
@@ -768,7 +987,7 @@ export const shipmentRouter = createRouter({
       const oneDayMs = 24 * 60 * 60 * 1000;
       const enriched = results.map(s => {
         const eta = s.estimatedDeliveryDate ? new Date(s.estimatedDeliveryDate) : null;
-        const isDone = ["delivered", "completed", "cancelled"].includes(s.status);
+        const isDone = s.status === "cancelled" || TPL_DONE_STATUSES.includes(s.status as (typeof TPL_DONE_STATUSES)[number]);
         let slaStatus: "no_eta" | "on_track" | "due_soon" | "overdue" = "no_eta";
         if (eta && !isDone) {
           const diffMs = eta.getTime() - now.getTime();
@@ -776,9 +995,14 @@ export const shipmentRouter = createRouter({
           else if (diffMs < oneDayMs) slaStatus = "due_soon";
           else slaStatus = "on_track";
         }
+        // What the 3PL sees is THEIR job: deliver to the hub on a hub route
+        // (that is where their agreement ends), and once they have, it is
+        // simply "delivered". The onward leg is KEDI's own business.
+        const deliverToBranchId = s.hubBranchId ?? s.destBranchId;
         return {
           ...s,
-          destinationBranch: branchList.find(b => b.id === s.destBranchId)?.name || "Unknown",
+          status: (ONWARD_STATUSES as readonly string[]).includes(s.status) ? "delivered" : s.status,
+          destinationBranch: branchList.find(b => b.id === deliverToBranchId)?.name || "Unknown",
           slaStatus,
           daysUntilEta: eta && !isDone ? Math.ceil((eta.getTime() - now.getTime()) / oneDayMs) : null,
         };
@@ -799,6 +1023,9 @@ export const shipmentRouter = createRouter({
       const branch = await db.select().from(branches).where(eq(branches.id, shipment[0].destBranchId)).limit(1);
       const originBranch = shipment[0].originBranchId
         ? await db.select().from(branches).where(eq(branches.id, shipment[0].originBranchId)).limit(1)
+        : [];
+      const hubBranch = shipment[0].hubBranchId
+        ? await db.select().from(branches).where(eq(branches.id, shipment[0].hubBranchId)).limit(1)
         : [];
       const tpl = shipment[0].tplId
         ? await db.select().from(thirdPartyLogistics).where(eq(thirdPartyLogistics.id, shipment[0].tplId)).limit(1)
@@ -834,6 +1061,7 @@ export const shipmentRouter = createRouter({
         ...shipment[0],
         destinationBranch: branch[0]?.name || "Unknown",
         originBranch: originBranch[0]?.name || "Lagos HQ",
+        hubBranchName: hubBranch[0]?.name || null,
         tplName: tpl[0]?.name || null,
         tplPickupType: shipment[0].tplPickupType,
         driverName: driver[0]?.name || null,
@@ -930,7 +1158,7 @@ export const shipmentRouter = createRouter({
       if (ctx.user?.role === "driver") {
         conditions.push(eq(shipments.assignedDriverId, ctx.user.id));
       } else if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
-        conditions.push(eq(shipments.destBranchId, ctx.user.branchId));
+        conditions.push(branchScope(ctx.user.branchId));
       }
 
       const filtered = await db.select().from(shipments).where(conditions.length > 0 ? and(...conditions) : undefined);
@@ -956,12 +1184,12 @@ export const shipmentRouter = createRouter({
       sql`${shipments.estimatedDeliveryDate} IS NOT NULL`
     ));
 
-    // Branch managers only see shipments to their branch
+    // Branch managers see shipments to their branch or routed through it
     if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
       query = db.select().from(shipments).where(and(
         inArray(shipments.status, IN_TRANSIT_STATUSES as any),
         sql`${shipments.estimatedDeliveryDate} IS NOT NULL`,
-        eq(shipments.destBranchId, ctx.user.branchId)
+        branchScope(ctx.user.branchId)
       ));
     }
 
@@ -977,17 +1205,20 @@ export const shipmentRouter = createRouter({
       else onTrack++;
     }
 
-    // Delivered but not yet acknowledged by the destination branch manager.
-    // Kept separate from `total` below on purpose -- total drives the
-    // Dashboard's red/amber "Attention Required" banner, which is about
-    // overdue/due-soon shipments, not this unrelated action.
+    // Shipments waiting on THIS branch manager to act: delivered or on their
+    // way to their branch (acknowledge), and shipments sitting at their hub
+    // (acknowledge receipt, then dispatch onward). Kept separate from `total`
+    // below on purpose -- total drives the Dashboard's red/amber "Attention
+    // Required" banner, which is about overdue/due-soon shipments, not this
+    // unrelated action.
     let awaitingAcknowledgement = 0;
     if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
-      const delivered = await db.select({ id: shipments.id }).from(shipments).where(and(
-        eq(shipments.status, "delivered"),
-        eq(shipments.destBranchId, ctx.user.branchId)
+      const branchId = ctx.user.branchId;
+      const waiting = await db.select({ id: shipments.id }).from(shipments).where(or(
+        and(inArray(shipments.status, ["delivered", "onward_in_transit"]), eq(shipments.destBranchId, branchId)),
+        and(eq(shipments.status, "at_hub"), eq(shipments.hubBranchId, branchId)),
       ));
-      awaitingAcknowledgement = delivered.length;
+      awaitingAcknowledgement = waiting.length;
     }
 
     return { overdue, dueSoon, onTrack, total: results.length, awaitingAcknowledgement };
@@ -1090,6 +1321,7 @@ export const shipmentRouter = createRouter({
         deliveredAt: shipments.deliveredAt,
         completedAt: shipments.completedAt,
         tplId: shipments.tplId,
+        hubBranchId: shipments.hubBranchId,
       }).from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
 
       // A 3PL may only view shipments assigned to their own company -- this
@@ -1111,6 +1343,13 @@ export const shipmentRouter = createRouter({
       if (ctx.tplUser) {
         const lastAssignIdx = rawEvents.map(e => e.eventType).lastIndexOf("assigned_to_3pl");
         rawEvents = lastAssignIdx >= 0 ? rawEvents.slice(lastAssignIdx) : [];
+
+        // On a hub route their job ends at the hub. What happens after that
+        // (the hub's acknowledgement, the onward leg) is KEDI's own business.
+        if (shipment[0]?.hubBranchId) {
+          const deliveredIdx = rawEvents.findIndex(e => e.eventType === "tpl_full_delivery" || e.eventType === "branch_marked_delivered");
+          if (deliveredIdx >= 0) rawEvents = rawEvents.slice(0, deliveredIdx + 1);
+        }
       }
 
       return fillEventTimestamps(rawEvents, shipment[0] ?? null);
@@ -1130,10 +1369,12 @@ export const shipmentRouter = createRouter({
       if (ctx.user?.role === "driver") {
         allShipments = allShipments.filter(s => s.assignedDriverId === ctx.user!.id);
       } else if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
-        allShipments = allShipments.filter(s => s.destBranchId === ctx.user!.branchId);
+        allShipments = allShipments.filter(s => s.destBranchId === ctx.user!.branchId || s.hubBranchId === ctx.user!.branchId);
       }
 
-      const doneStatuses = ["delivered", "completed"];
+      // A 3PL's job is done at the hub on a hub route, so its on-time result
+      // and delivered counts are settled there, not at the final branch.
+      const doneStatuses: readonly string[] = TPL_DONE_STATUSES;
       const finished = allShipments.filter(s => doneStatuses.includes(s.status) && (s.deliveredAt || s.completedAt));
 
       let onTime = 0, late = 0, noEta = 0, totalDays = 0, daysCount = 0;
@@ -1221,16 +1462,18 @@ export const shipmentRouter = createRouter({
       const limit = input?.limit ?? 30;
 
       let shipmentIds: number[] | null = null;
+      let tplHubShipmentIds: number[] = [];
       if (ctx.user?.role === "driver") {
         const rows = await db.select({ id: shipments.id }).from(shipments).where(eq(shipments.assignedDriverId, ctx.user.id));
         shipmentIds = rows.map(r => r.id);
       } else if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
-        const rows = await db.select({ id: shipments.id }).from(shipments).where(eq(shipments.destBranchId, ctx.user.branchId));
+        const rows = await db.select({ id: shipments.id }).from(shipments).where(branchScope(ctx.user.branchId));
         shipmentIds = rows.map(r => r.id);
       } else if (ctx.tplUser) {
         // 3PL users only ever see activity for shipments assigned to their own company.
-        const rows = await db.select({ id: shipments.id }).from(shipments).where(eq(shipments.tplId, ctx.tplUser.tplId));
+        const rows = await db.select({ id: shipments.id, hubBranchId: shipments.hubBranchId }).from(shipments).where(eq(shipments.tplId, ctx.tplUser.tplId));
         shipmentIds = rows.map(r => r.id);
+        tplHubShipmentIds = rows.filter(r => r.hubBranchId).map(r => r.id);
       }
       if (shipmentIds && shipmentIds.length === 0) return { events: [] };
 
@@ -1250,9 +1493,30 @@ export const shipmentRouter = createRouter({
         const cutoffByShipment = new Map<number, number>();
         for (const row of assignEvents) cutoffByShipment.set(row.shipmentId, row.id); // latest (highest id) wins
 
+        // On a hub route their job ends at the hub: the first delivery event
+        // (theirs, or the hub recording arrival) is the last one they see.
+        const endByShipment = new Map<number, number>();
+        if (tplHubShipmentIds.length > 0) {
+          const deliveryEvents = await db.select({ shipmentId: trackingEvents.shipmentId, id: trackingEvents.id })
+            .from(trackingEvents)
+            .where(and(
+              inArray(trackingEvents.shipmentId, tplHubShipmentIds),
+              inArray(trackingEvents.eventType, ["tpl_full_delivery", "branch_marked_delivered"]),
+            ))
+            .orderBy(trackingEvents.id);
+          for (const row of deliveryEvents) {
+            const start = cutoffByShipment.get(row.shipmentId);
+            if (start !== undefined && row.id >= start && !endByShipment.has(row.shipmentId)) endByShipment.set(row.shipmentId, row.id);
+          }
+        }
+
         const scopedIds = [...cutoffByShipment.keys()];
         eventsCondition = scopedIds.length > 0
-          ? or(...scopedIds.map(id => and(eq(trackingEvents.shipmentId, id), gte(trackingEvents.id, cutoffByShipment.get(id)!))))
+          ? or(...scopedIds.map(id => and(
+              eq(trackingEvents.shipmentId, id),
+              gte(trackingEvents.id, cutoffByShipment.get(id)!),
+              endByShipment.has(id) ? lte(trackingEvents.id, endByShipment.get(id)!) : undefined,
+            )))
           : sql`1 = 0`; // no shipment has been assigned yet -- nothing to show
       }
 

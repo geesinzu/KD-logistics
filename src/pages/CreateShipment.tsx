@@ -44,6 +44,10 @@ export default function CreateShipment() {
 
   // Filter out Lagos HQ from destination (it's always the origin)
   const destBranches = branches?.filter(b => b.name !== "Lagos HQ") || [];
+  // Some branches are served via a hub (e.g. Uyo via PH): the route is fixed by
+  // the branch, so the creator just sees it rather than choosing it.
+  const selectedBranch = destBranches.find(b => String(b.id) === destBranchId);
+  const hubBranch = selectedBranch?.hubBranchId ? branches?.find(b => b.id === selectedBranch.hubBranchId) : undefined;
 
   return (
     <div className="max-w-lg mx-auto">
@@ -70,6 +74,11 @@ export default function CreateShipment() {
                 {destBranches.map(b => <SelectItem key={b.id} value={String(b.id)}>{b.name} ({b.city})</SelectItem>)}
               </SelectContent>
             </Select>
+            {hubBranch && selectedBranch && (
+              <p className="mt-2 rounded-lg bg-blue-50 border border-blue-100 p-2 text-xs text-blue-800">
+                Routed via <strong>{hubBranch.name}</strong> hub, then onward to {selectedBranch.name}. Both branch managers will be notified.
+              </p>
+            )}
           </div>
           <div><Label>Receiver Name</Label><Input value={receiverName} onChange={e => setReceiverName(e.target.value)} placeholder="Who receives this shipment" /></div>
           <div><Label>Receiver Phone</Label><Input value={receiverPhone} onChange={e => setReceiverPhone(e.target.value)} placeholder="+234 802 345 6789" /></div>

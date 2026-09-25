@@ -7,13 +7,21 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
-import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { ArrowLeft, MapPin, User, Phone, Truck, QrCode, Trash2, AlertTriangle, CheckCircle2 } from "lucide-react";
+import { STATUS_LABELS, STATUS_COLORS, RECEIVABLE_BY_BRANCH_STATUSES } from "@contracts/constants";
+import { ArrowLeft, MapPin, User, Phone, Truck, QrCode, Trash2, AlertTriangle, CheckCircle2, Building2, Check } from "lucide-react";
 import { toast } from "sonner";
+
+// <input type="datetime-local"> wants local time as YYYY-MM-DDTHH:mm
+function toLocalInputValue(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
 
 export default function ShipmentDetail() {
   const { id } = useParams<{ id: string }>();
@@ -68,6 +76,63 @@ export default function ShipmentDetail() {
     deleteEventMutation.mutate({ eventId });
   };
 
+  // ── Hub route + branch fallback ──
+  // Only the responsible branch manager gets these (no admin override): the
+  // person on record is the one who actually received or sent the shipment.
+  const isHubRoute = !!shipment?.hubBranchId;
+  const isHubManager = role === "branch_manager" && !!shipment?.hubBranchId && shipment.hubBranchId === user?.branchId;
+  const receivingBranchId = shipment ? (shipment.hubBranchId ?? shipment.destBranchId) : null;
+  const canMarkReceived = role === "branch_manager" && !!shipment && receivingBranchId === user?.branchId &&
+    (RECEIVABLE_BY_BRANCH_STATUSES as readonly string[]).includes(shipment.status);
+
+  const refreshShipment = () => {
+    utils.shipment.getById.invalidate({ id: Number(id) });
+    utils.shipment.list.invalidate();
+    utils.shipment.attentionStats.invalidate();
+    utils.shipment.recentActivity.invalidate();
+  };
+
+  const acknowledgeAtHubMutation = trpc.shipment.acknowledgeAtHub.useMutation({
+    onSuccess: () => { toast.success("Receipt at hub acknowledged"); refreshShipment(); },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const [showDispatch, setShowDispatch] = useState(false);
+  const [dispatchVehicle, setDispatchVehicle] = useState("");
+  const [dispatchWaybill, setDispatchWaybill] = useState("");
+  const [dispatchExpected, setDispatchExpected] = useState("");
+  const [dispatchNote, setDispatchNote] = useState("");
+  const dispatchOnwardMutation = trpc.shipment.dispatchOnward.useMutation({
+    onSuccess: () => {
+      toast.success("Dispatched onward");
+      setShowDispatch(false);
+      setDispatchVehicle(""); setDispatchWaybill(""); setDispatchExpected(""); setDispatchNote("");
+      refreshShipment();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+
+  const [showReceived, setShowReceived] = useState(false);
+  const [receivedAt, setReceivedAt] = useState("");
+  const [receivedQty, setReceivedQty] = useState("");
+  const [receivedNote, setReceivedNote] = useState("");
+  const markReceivedMutation = trpc.shipment.markReceivedByBranch.useMutation({
+    onSuccess: (result) => {
+      toast.success(result.completed ? "Receipt recorded and shipment completed"
+        : result.remaining > 0 ? `Partial receipt recorded, ${result.remaining} item(s) still to arrive`
+        : "Receipt recorded");
+      setShowReceived(false);
+      setReceivedNote("");
+      refreshShipment();
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  const openReceivedDialog = () => {
+    setReceivedAt(toLocalInputValue(new Date()));
+    setReceivedQty(String(shipment?.actualItemCount ?? shipment?.estimatedItemCount ?? ""));
+    setShowReceived(true);
+  };
+
   if (isLoading) return <div className="p-4 text-center text-ink-soft">Loading...</div>;
   if (!shipment) return <div className="p-4 text-center text-ink-soft">Shipment not found</div>;
 
@@ -92,7 +157,7 @@ export default function ShipmentDetail() {
             <div className="flex items-center gap-1.5 text-xs font-semibold text-[#1E7B4D]">
               <CheckCircle2 size={14} />
               On time{shipment.estimatedDeliveryDate && (shipment.deliveredAt || shipment.completedAt) && (
-                <> &middot; delivered {new Date((shipment.deliveredAt || shipment.completedAt)!).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}, ETA {new Date(shipment.estimatedDeliveryDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</>
+                <> &middot; {isHubRoute ? "reached hub" : "delivered"} {new Date((shipment.deliveredAt || shipment.completedAt)!).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}, ETA {new Date(shipment.estimatedDeliveryDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</>
               )}
             </div>
           )}
@@ -100,7 +165,7 @@ export default function ShipmentDetail() {
             <div className="flex items-center gap-1.5 text-xs font-semibold text-[#B3261E]">
               <AlertTriangle size={14} />
               Overdue by {shipment.daysLate} day{shipment.daysLate === 1 ? "" : "s"}{shipment.estimatedDeliveryDate && (shipment.deliveredAt || shipment.completedAt) && (
-                <> &middot; delivered {new Date((shipment.deliveredAt || shipment.completedAt)!).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}, ETA {new Date(shipment.estimatedDeliveryDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</>
+                <> &middot; {isHubRoute ? "reached hub" : "delivered"} {new Date((shipment.deliveredAt || shipment.completedAt)!).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}, ETA {new Date(shipment.estimatedDeliveryDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}</>
               )}
             </div>
           )}
@@ -118,7 +183,19 @@ export default function ShipmentDetail() {
                 <p className="text-[11px] text-ink-soft">Origin</p>
                 <p className="text-xs font-semibold text-ink">Lagos HQ</p>
               </div>
-              <div className="flex-1 mx-3 border-t-2 border-dashed border-[#E8E4DC] relative"><Truck size={16} className="absolute left-1/2 -translate-x-1/2 -top-3 text-ink-soft" /></div>
+              <div className={`flex-1 mx-3 border-t-2 relative ${isHubRoute ? "border-[#1E7B4D]" : "border-dashed border-[#E8E4DC]"}`}><Truck size={16} className="absolute left-1/2 -translate-x-1/2 -top-3 text-ink-soft" /></div>
+              {isHubRoute && (
+                <>
+                  <div className="text-center">
+                    <div className={`w-8 h-8 rounded-full flex items-center justify-center mx-auto mb-1 ${isHubManager ? "bg-navy" : "bg-navy-soft"}`}>
+                      <Building2 size={14} className={isHubManager ? "text-white" : "text-navy"} />
+                    </div>
+                    <p className="text-[11px] text-navy font-semibold">{isHubManager ? "Hub · you" : "Hub"}</p>
+                    <p className="text-xs font-semibold text-ink">{shipment.hubBranchName}</p>
+                  </div>
+                  <div className="flex-1 mx-3 border-t-2 border-dashed border-[#E8E4DC]" />
+                </>
+              )}
               <div className="text-center">
                 <div className="w-8 h-8 bg-clay-soft rounded-full flex items-center justify-center mx-auto mb-1"><MapPin size={14} className="text-clay" /></div>
                 <p className="text-[11px] text-ink-soft">Destination</p>
@@ -127,6 +204,63 @@ export default function ShipmentDetail() {
             </div>
           </CardContent>
         </Card>
+
+        {/* Two acknowledgements (hub routes only) */}
+        {isHubRoute && shipment.status !== "cancelled" && (
+          <Card className="border border-[#E8E4DC] shadow-none rounded-2xl mb-4">
+            <CardContent className="p-4">
+              <h3 className="text-[11px] font-bold text-ink-soft uppercase tracking-wide mb-3">Two acknowledgements</h3>
+              {[
+                {
+                  n: 1,
+                  title: `Hub receipt · ${shipment.hubBranchName}`,
+                  done: !!shipment.hubAcknowledgedAt,
+                  text: shipment.hubAcknowledgedAt
+                    ? `Acknowledged ${new Date(shipment.hubAcknowledgedAt).toLocaleString("en-NG", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}`
+                    : shipment.status === "at_hub" ? `Waiting for ${shipment.hubBranchName}` : "After the 3PL reaches the hub",
+                  waiting: shipment.status === "at_hub" && !shipment.hubAcknowledgedAt,
+                },
+                {
+                  n: 2,
+                  title: `Branch receipt · ${shipment.destinationBranch}`,
+                  done: shipment.status === "completed",
+                  text: shipment.status === "completed"
+                    ? `Acknowledged ${shipment.completedAt ? new Date(shipment.completedAt).toLocaleString("en-NG", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" }) : ""}`
+                    : shipment.status === "onward_in_transit" ? `Waiting for ${shipment.destinationBranch}` : "After onward delivery",
+                  waiting: shipment.status === "onward_in_transit",
+                },
+              ].map(step => (
+                <div key={step.n} className="flex gap-3 items-start mb-3 last:mb-0">
+                  <div className={`w-[22px] h-[22px] rounded-full flex items-center justify-center shrink-0 text-[11px] font-bold ${
+                    step.done ? "bg-[#1E7B4D] text-white" : step.waiting ? "border-2 border-clay text-clay" : "border-2 border-[#E8E4DC] text-[#A7ADB8]"}`}>
+                    {step.done ? <Check size={12} strokeWidth={3.5} /> : step.n}
+                  </div>
+                  <div>
+                    <p className={`text-[13px] font-semibold ${step.done || step.waiting ? "text-ink" : "text-ink-soft"}`}>{step.title}</p>
+                    <p className={`text-xs ${step.done ? "text-[#1E7B4D]" : step.waiting ? "text-clay font-semibold" : "text-ink-soft/70"}`}>{step.text}</p>
+                  </div>
+                </div>
+              ))}
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Onward delivery details, once the hub has sent it on */}
+        {shipment.onwardDispatchedAt && (() => {
+          const onward = (shipment.onwardDetails || {}) as { vehicle?: string; waybill?: string | null; expectedDate?: string | null; note?: string | null };
+          return (
+            <Card className="border border-[#E8E4DC] shadow-none rounded-2xl mb-4">
+              <CardContent className="p-4 space-y-2">
+                <h3 className="text-[11px] font-bold text-ink-soft uppercase tracking-wide">Onward delivery from {shipment.hubBranchName}</h3>
+                <div className="flex justify-between text-[12.5px]"><span className="text-ink-soft">Dispatched</span><strong className="text-ink">{new Date(shipment.onwardDispatchedAt).toLocaleString("en-NG", { day: "numeric", month: "short", hour: "numeric", minute: "2-digit" })}</strong></div>
+                {onward.vehicle && <div className="flex justify-between text-[12.5px]"><span className="text-ink-soft">Vehicle / driver</span><strong className="text-ink">{onward.vehicle}</strong></div>}
+                {onward.waybill && <div className="flex justify-between text-[12.5px]"><span className="text-ink-soft">Waybill</span><strong className="text-ink">{onward.waybill}</strong></div>}
+                {onward.expectedDate && <div className="flex justify-between text-[12.5px]"><span className="text-ink-soft">Expected at {shipment.destinationBranch}</span><strong className="text-ink">{new Date(onward.expectedDate).toLocaleDateString("en-NG", { day: "numeric", month: "short", year: "numeric" })}</strong></div>}
+                {onward.note && <p className="text-xs text-ink-soft">{onward.note}</p>}
+              </CardContent>
+            </Card>
+          );
+        })()}
 
         {/* Details */}
         <Card className="border border-[#E8E4DC] shadow-none rounded-2xl mb-4">
@@ -192,7 +326,8 @@ export default function ShipmentDetail() {
               <MapPin size={16} className="mr-2" /> Scan at 3PL Drop-off
             </Button>
           )}
-          {shipment.status === "delivered" && canAcknowledge && (
+          {/* Direct route: delivered. Hub route: the hub has sent it on. */}
+          {((shipment.status === "delivered" && !isHubRoute) || shipment.status === "onward_in_transit") && canAcknowledge && (
             <Button
               className="w-full bg-[#1E7B4D] hover:bg-[#155C39] h-12 rounded-xl font-semibold"
               disabled={acknowledgeDeliveryMutation.isPending}
@@ -200,6 +335,42 @@ export default function ShipmentDetail() {
             >
               <CheckCircle2 size={16} className="mr-2" />
               {acknowledgeDeliveryMutation.isPending ? "Acknowledging..." : "Acknowledge Receipt"}
+            </Button>
+          )}
+          {/* The hub never recorded sending it on, but it has reached the final branch. */}
+          {shipment.status === "at_hub" && isHubRoute && canAcknowledge && !isHubManager && (
+            <Button
+              variant="outline"
+              className="w-full h-10 rounded-xl font-semibold border-[#E8E4DC] text-ink hover:bg-white"
+              disabled={acknowledgeDeliveryMutation.isPending}
+              onClick={() => {
+                if (!confirm(`${shipment.hubBranchName} hasn't recorded sending this on. Only acknowledge if it has actually reached your branch.`)) return;
+                acknowledgeDeliveryMutation.mutate({ shipmentId: shipment.id });
+              }}
+            >
+              <CheckCircle2 size={14} className="mr-2" /> It arrived, but the hub didn't record dispatch
+            </Button>
+          )}
+          {/* Hub manager: acknowledgement #1, then send it on */}
+          {shipment.status === "at_hub" && isHubManager && !shipment.hubAcknowledgedAt && (
+            <Button
+              className="w-full bg-navy hover:bg-[#0F2039] h-12 rounded-xl font-semibold"
+              disabled={acknowledgeAtHubMutation.isPending}
+              onClick={() => acknowledgeAtHubMutation.mutate({ shipmentId: shipment.id })}
+            >
+              <Check size={16} className="mr-2" />
+              {acknowledgeAtHubMutation.isPending ? "Acknowledging..." : "Acknowledge receipt at hub"}
+            </Button>
+          )}
+          {shipment.status === "at_hub" && isHubManager && shipment.hubAcknowledgedAt && (
+            <Button className="w-full bg-navy hover:bg-[#0F2039] h-12 rounded-xl font-semibold" onClick={() => setShowDispatch(true)}>
+              <Truck size={16} className="mr-2" /> Dispatch onward to {shipment.destinationBranch}
+            </Button>
+          )}
+          {/* The 3PL never posted a delivery update but the shipment has arrived */}
+          {canMarkReceived && (
+            <Button variant="outline" className="w-full h-10 rounded-xl font-semibold border-[#E8E4DC] text-ink hover:bg-white" onClick={openReceivedDialog}>
+              <Check size={14} className="mr-2" /> Mark as received (3PL hasn't updated)
             </Button>
           )}
           {shipment.qrCodeToken && (
@@ -268,6 +439,84 @@ export default function ShipmentDetail() {
           </Card>
         )}
       </div>
+
+      {/* Dispatch onward (hub manager) */}
+      <Dialog open={showDispatch} onOpenChange={setShowDispatch}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Dispatch onward to {shipment.destinationBranch}</DialogTitle></DialogHeader>
+          <p className="text-xs text-ink-soft -mt-1">{shipment.destinationBranch} is notified as soon as you confirm.</p>
+          <div className="space-y-3">
+            <div><Label htmlFor="dispatch-vehicle">Vehicle or driver *</Label><Input id="dispatch-vehicle" value={dispatchVehicle} onChange={e => setDispatchVehicle(e.target.value)} placeholder="e.g. Kehinde, Toyota Hiace" /></div>
+            <div className="flex gap-2">
+              <div className="flex-1"><Label htmlFor="dispatch-waybill">Waybill no.</Label><Input id="dispatch-waybill" value={dispatchWaybill} onChange={e => setDispatchWaybill(e.target.value)} /></div>
+              <div className="flex-1"><Label htmlFor="dispatch-expected">Expected at {shipment.destinationBranch}</Label><Input id="dispatch-expected" type="date" value={dispatchExpected} onChange={e => setDispatchExpected(e.target.value)} /></div>
+            </div>
+            <div><Label htmlFor="dispatch-note">Note (optional)</Label><Textarea id="dispatch-note" value={dispatchNote} onChange={e => setDispatchNote(e.target.value)} rows={2} /></div>
+            <div className="flex gap-2 pt-1">
+              <Button variant="outline" className="flex-1" onClick={() => setShowDispatch(false)}>Cancel</Button>
+              <Button
+                className="flex-[2] bg-navy hover:bg-[#0F2039]"
+                disabled={!dispatchVehicle.trim() || dispatchOnwardMutation.isPending}
+                onClick={() => dispatchOnwardMutation.mutate({
+                  shipmentId: shipment.id,
+                  vehicle: dispatchVehicle.trim(),
+                  waybill: dispatchWaybill.trim() || undefined,
+                  expectedDate: dispatchExpected || undefined,
+                  note: dispatchNote.trim() || undefined,
+                })}
+              >
+                {dispatchOnwardMutation.isPending ? "Dispatching..." : "Dispatch onward"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Mark as received (branch manager, 3PL never updated) */}
+      <Dialog open={showReceived} onOpenChange={setShowReceived}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>Mark as received</DialogTitle></DialogHeader>
+          <p className="text-xs text-ink-soft -mt-1">
+            {shipment.tplName || "The 3PL"} hasn't posted a delivery update. Record what actually arrived{isHubRoute ? ` at ${shipment.hubBranchName}` : ` at ${shipment.destinationBranch}`}.
+          </p>
+          {(() => {
+            const expected = shipment.actualItemCount ?? shipment.estimatedItemCount ?? null;
+            const qty = Number(receivedQty);
+            const short = expected != null && qty > 0 && qty < expected;
+            return (
+              <div className="space-y-3">
+                <div><Label htmlFor="received-at">Time received</Label><Input id="received-at" type="datetime-local" value={receivedAt} max={toLocalInputValue(new Date())} onChange={e => setReceivedAt(e.target.value)} /></div>
+                <div>
+                  <Label htmlFor="received-qty">Total quantity received{expected != null ? ` (expected ${expected})` : ""}</Label>
+                  <Input id="received-qty" type="number" min={1} value={receivedQty} onChange={e => setReceivedQty(e.target.value)} className={short ? "border-[#B7791F]" : ""} />
+                  {short && (
+                    <p className="mt-2 rounded-lg bg-clay-soft p-2 text-[11.5px] text-[#8A5A15]">
+                      {expected! - qty} fewer than expected. This will be recorded as a partial delivery, not completed, so the remaining {expected! - qty} stay tracked.
+                    </p>
+                  )}
+                </div>
+                <div><Label htmlFor="received-note">Note</Label><Textarea id="received-note" value={receivedNote} onChange={e => setReceivedNote(e.target.value)} rows={2} /></div>
+                <p className="text-[11px] text-ink-soft">KEDI operations will be told the 3PL didn't update this shipment.</p>
+                <div className="flex gap-2 pt-1">
+                  <Button variant="outline" className="flex-1" onClick={() => setShowReceived(false)}>Cancel</Button>
+                  <Button
+                    className="flex-[2] bg-navy hover:bg-[#0F2039]"
+                    disabled={!receivedAt || !(qty >= 1) || markReceivedMutation.isPending}
+                    onClick={() => markReceivedMutation.mutate({
+                      shipmentId: shipment.id,
+                      receivedAt: new Date(receivedAt).toISOString(),
+                      receivedQty: qty,
+                      note: receivedNote.trim() || undefined,
+                    })}
+                  >
+                    {markReceivedMutation.isPending ? "Saving..." : `Record ${qty >= 1 ? qty : ""} received`}
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
 
       <AlertDialog open={showDeleteShipment} onOpenChange={(open) => { setShowDeleteShipment(open); if (!open) setDeleteReason(""); }}>
         <AlertDialogContent>

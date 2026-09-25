@@ -69,6 +69,8 @@ export const SHIPMENT_STATUSES = [
   "delivered",
   "completed",
   "cancelled",
+  "at_hub",
+  "onward_in_transit",
 ] as const;
 
 export const STATUS_LABELS: Record<string, string> = {
@@ -86,7 +88,30 @@ export const STATUS_LABELS: Record<string, string> = {
   delivered: "Delivered",
   completed: "Completed",
   cancelled: "Cancelled",
+  at_hub: "At Hub",
+  onward_in_transit: "Onward In Transit",
 };
+
+// Hub routes (e.g. Uyo via PH): after the 3PL delivers to the hub, the hub's
+// own staff send the shipment on to the final branch.
+export const ONWARD_STATUSES = ["at_hub", "onward_in_transit"] as const;
+
+// Statuses where the 3PL's own job is finished. On a direct route that is
+// "delivered"; on a hub route it is the moment they reach the hub, so their
+// on-time result and performance stats are settled there, not at the final
+// branch.
+export const TPL_DONE_STATUSES = ["delivered", "completed", "at_hub", "onward_in_transit"] as const;
+
+// Statuses where the shipment is in the 3PL's custody and a receiving branch
+// may record that it actually arrived (because the 3PL never posted the
+// delivery update).
+export const RECEIVABLE_BY_BRANCH_STATUSES = [
+  "at_3pl",
+  "picked_up_by_3pl",
+  "tpl_confirmed",
+  "in_transit_with_3pl",
+  "partially_delivered",
+] as const;
 
 // Shipments that are "moving" — assigned and out of the warehouse, but not
 // yet delivered. Shared between attentionStats, flagOverdue, and stats
@@ -116,6 +141,8 @@ export const STATUS_COLORS: Record<string, string> = {
   delivered: "bg-green-100 text-green-700",
   completed: "bg-emerald-100 text-emerald-700",
   cancelled: "bg-red-100 text-red-700",
+  at_hub: "bg-amber-50 text-amber-700",
+  onward_in_transit: "bg-indigo-50 text-indigo-700",
 };
 
 // ── 3PL OPTIONS ──
