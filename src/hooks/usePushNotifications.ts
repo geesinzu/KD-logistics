@@ -1,6 +1,21 @@
 import { useState, useEffect, useCallback } from "react";
 import { trpc } from "@/providers/trpc";
 
+// iOS only exposes PushManager when the page is running as an installed
+// Home Screen app (Safari's "Add to Home Screen"), never in a regular
+// Safari tab or a link opened from Mail/Messages -- even after installing,
+// so the two most common "nothing shows up" reports are actually different
+// problems: never installed, vs. installed but opened the wrong way.
+function isIosDevice(): boolean {
+  return /iphone|ipad|ipod/i.test(navigator.userAgent) ||
+    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1); // iPadOS reports as a Mac
+}
+
+function isStandaloneDisplay(): boolean {
+  return (navigator as unknown as { standalone?: boolean }).standalone === true ||
+    window.matchMedia("(display-mode: standalone)").matches;
+}
+
 function urlBase64ToUint8Array(base64String: string) {
   const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
   const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
@@ -18,6 +33,9 @@ export function usePushNotifications(variant: "kedi" | "tpl" = "kedi") {
   const [permission, setPermission] = useState<NotificationPermission>("default");
   const [isChecking, setIsChecking] = useState(true);
   const [lastError, setLastError] = useState<string | null>(null);
+  // Only meaningful when isSupported is false -- explains WHY, so the UI can
+  // say something actionable instead of just hiding the whole section.
+  const [notSupportedReason, setNotSupportedReason] = useState<"ios_not_installed" | "unsupported_browser" | null>(null);
 
   const { data: vapidData } = trpc.push.vapidKey.useQuery();
   // Both variants' mutations are declared unconditionally (rules of hooks) —
@@ -32,6 +50,9 @@ export function usePushNotifications(variant: "kedi" | "tpl" = "kedi") {
   // Check existing subscription on mount
   useEffect(() => {
     if (typeof window === "undefined" || !("serviceWorker" in navigator) || !("PushManager" in window)) {
+      if (typeof window !== "undefined") {
+        setNotSupportedReason(isIosDevice() && !isStandaloneDisplay() ? "ios_not_installed" : "unsupported_browser");
+      }
       setIsChecking(false);
       return;
     }
@@ -115,6 +136,7 @@ export function usePushNotifications(variant: "kedi" | "tpl" = "kedi") {
 
   return {
     isSupported,
+    notSupportedReason,
     isSubscribed,
     permission,
     subscribe,

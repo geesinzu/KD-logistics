@@ -32,7 +32,7 @@ export default function TplPortal() {
   const { data: me } = trpc.tpl.me.useQuery();
   const unreadCount = useTplUnreadNotificationCount();
   const { data: activityData, isLoading: activityLoading } = useTplRecentActivity(50);
-  const { isSupported, isSubscribed, permission, subscribe, unsubscribe, isConfiguring, isServerConfigured } = usePushNotifications("tpl");
+  const { isSupported, notSupportedReason, isSubscribed, permission, subscribe, unsubscribe, isConfiguring, isServerConfigured } = usePushNotifications("tpl");
 
   useEffect(() => {
     if (showNotifications) markTplNotificationsSeen(me?.id);
@@ -378,6 +378,17 @@ export default function TplPortal() {
       <Dialog open={showNotifications} onOpenChange={setShowNotifications}>
         <DialogContent className="max-w-sm max-h-[80vh] flex flex-col">
           <DialogHeader><DialogTitle>Notifications</DialogTitle></DialogHeader>
+
+          {notSupportedReason && (
+            <div className="bg-gray-50 rounded-lg p-3 mb-1">
+              <p className="text-xs font-medium">Push not available on this device</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">
+                {notSupportedReason === "ios_not_installed"
+                  ? "On iPhone, this only works when opened from the Home Screen icon — not Safari or a shared link. Tap Share → Add to Home Screen, then open it from that icon."
+                  : "This browser doesn't support push. On iPhone use Safari (iOS 16.4+) added to your Home Screen."}
+              </p>
+            </div>
+          )}
 
           {isSupported && (
             <div className="flex items-center justify-between bg-gray-50 rounded-lg p-3 mb-1">
