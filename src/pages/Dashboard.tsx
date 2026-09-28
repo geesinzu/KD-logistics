@@ -171,9 +171,9 @@ export default function Dashboard() {
           <CardContent className="p-4">
             <div className="flex items-center gap-2 mb-2">
               <CheckCircle size={18} className="text-[#1E7B4D]" />
-              <span className="text-sm font-bold font-display text-[#155C39]">Awaiting Your Acknowledgement</span>
+              <span className="text-sm font-bold font-display text-[#155C39]">Needs Your Action</span>
             </div>
-            <p className="text-xs text-[#155C39] mb-3">{attention?.awaitingAcknowledgement ?? 0} shipment(s) delivered to your branch, ready to acknowledge</p>
+            <p className="text-xs text-[#155C39] mb-3">{attention?.awaitingAcknowledgement ?? 0} shipment(s) delivered to, on their way to, or waiting at your branch for you to acknowledge or send on</p>
             <Button size="sm" className="w-full bg-[#1E7B4D] hover:bg-[#155C39] rounded-xl font-semibold" onClick={() => navigate("/shipments")}>
               View Shipments
             </Button>

@@ -9,6 +9,7 @@ import {
   date,
   json,
   decimal,
+  datetime,
 } from "drizzle-orm/mysql-core";
 
 // ── USERS ──
@@ -48,6 +49,9 @@ export const branches = mysqlTable("branches", {
   city: varchar("city", { length: 50 }),
   address: text("address"),
   managerId: bigint("manager_id", { mode: "number", unsigned: true }),
+  // Set for branches whose shipments are delivered by the 3PL to another branch
+  // (the hub) first, then sent on by that hub's staff. E.g. Uyo -> PH.
+  hubBranchId: bigint("hub_branch_id", { mode: "number", unsigned: true }),
   status: mysqlEnum("status", ["active", "inactive"]).default("active").notNull(),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
@@ -133,13 +137,36 @@ export const shipments = mysqlTable("shipments", {
     "delivered",
     "completed",
     "cancelled",
+    "at_hub",
+    "onward_in_transit",
   ]).default("created").notNull(),
 
-  // Delivery
+  // Delivery. On a hub route deliveredAt is when the 3PL reached the HUB
+  // (that is where their agreement ends), and completedAt is the final
+  // branch's acknowledgement.
   deliveredAt: timestamp("delivered_at"),
   deliveredQty: int("delivered_qty"),
   remainingQty: int("remaining_qty"),
   completedAt: timestamp("completed_at"),
+  // Who reported the delivery: the 3PL (normal) or the receiving branch
+  // (when the 3PL never posted an update).
+  deliveryReportedBy: mysqlEnum("delivery_reported_by", ["tpl", "branch"]),
+
+  // Hub route (set at creation from the destination branch's hub, so later
+  // changes to a branch's hub never rewrite an existing shipment's route)
+  // The three dates below are DATETIME on purpose, not TIMESTAMP: on this
+  // database a nullable TIMESTAMP column can silently become NOT NULL with a
+  // zero-date default (the same trap behind the earlier missing-timestamp
+  // saga), which reads back as a truthy "Invalid Date" and would make an
+  // untouched shipment look already acknowledged. DATETIME is plainly
+  // nullable everywhere.
+  hubBranchId: bigint("hub_branch_id", { mode: "number", unsigned: true }),
+  hubArrivedAt: datetime("hub_arrived_at"),
+  hubAcknowledgedAt: datetime("hub_acknowledged_at"),
+  hubAcknowledgedBy: bigint("hub_acknowledged_by", { mode: "number", unsigned: true }),
+  onwardDispatchedAt: datetime("onward_dispatched_at"),
+  // { vehicle, waybill, expectedDate, note } entered by the hub when dispatching
+  onwardDetails: json("onward_details"),
 
   // Timestamps
   createdAt: timestamp("created_at").defaultNow().notNull(),
@@ -170,6 +197,9 @@ export const trackingEvents = mysqlTable("tracking_events", {
     "cancelled",
     "note_added",
     "delivery_acknowledged",
+    "branch_marked_delivered",
+    "hub_acknowledged",
+    "onward_dispatched",
   ]).notNull(),
   oldStatus: varchar("old_status", { length: 30 }),
   newStatus: varchar("new_status", { length: 30 }),

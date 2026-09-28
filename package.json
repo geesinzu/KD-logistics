@@ -16,7 +16,8 @@
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
     "db:seed": "tsx db/seed.ts",
-    "db:restore-timestamps": "tsx db/restore-legacy-timestamps.ts"
+    "db:restore-timestamps": "tsx db/restore-legacy-timestamps.ts",
+    "db:set-hub-routes": "tsx db/set-hub-routes.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.965.0",

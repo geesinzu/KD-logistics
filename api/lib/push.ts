@@ -133,6 +133,14 @@ async function notifyShipmentAudiences(
     ));
     idsByAudience.branch = managers.map(m => m.id);
   }
+  if (audiences.has("hub") && shipment.hubBranchId) {
+    const hubManagers = await db.select({ id: users.id }).from(users).where(and(
+      eq(users.role, "branch_manager"),
+      eq(users.branchId, shipment.hubBranchId),
+      eq(users.status, "active"),
+    ));
+    idsByAudience.hub = hubManagers.map(m => m.id);
+  }
   if (audiences.has("driver")) idsByAudience.driver = [shipment.assignedDriverId];
   if (audiences.has("warehouse")) idsByAudience.warehouse = await activeUserIdsWithRole(["warehouse_supply"]);
   if (audiences.has("creator")) idsByAudience.creator = [shipment.createdBy];
@@ -165,14 +173,17 @@ export async function notifyShipmentCreated(shipmentId: number, destBranchId: nu
   const shipment = await loadShipment(shipmentId);
   if (!shipment) return;
   const branchName = await getBranchName(destBranchId);
+  const hubName = shipment.hubBranchId ? await getBranchName(shipment.hubBranchId) : null;
+  const viaHub = hubName ? ` It will come via ${hubName} hub.` : "";
   const base = { tag: tagFor(shipmentId), url: urlFor(shipmentId) };
 
   await notifyShipmentAudiences(shipment, "created",
-    { ...base, title: "New Shipment Created", body: `Shipment ${trackingId} heading to ${branchName}. Waiting for warehouse processing.` },
+    { ...base, title: "New Shipment Created", body: `Shipment ${trackingId} heading to ${branchName}${hubName ? ` via ${hubName} hub` : ""}. Waiting for warehouse processing.` },
     {
-      creator: { ...base, title: "Shipment Created", body: `Your shipment (${trackingId}) to ${branchName} has been logged.` },
+      creator: { ...base, title: "Shipment Created", body: `Your shipment (${trackingId}) to ${branchName} has been logged.${viaHub}` },
       warehouse: { ...base, title: "Warehouse: New Shipment", body: `Shipment ${trackingId} to ${branchName} needs items input and labeling.` },
-      branch: { ...base, title: "Incoming Shipment", body: `A shipment (${trackingId}) is heading to your branch (${branchName}).` },
+      branch: { ...base, title: "Incoming Shipment", body: `A shipment (${trackingId}) is heading to your branch (${branchName}).${viaHub}` },
+      hub: { ...base, title: "Incoming Shipment via Your Hub", body: `A shipment (${trackingId}) for ${branchName} will come through your hub for onward delivery.` },
     },
   );
 }
@@ -293,6 +304,81 @@ export async function notifyShipmentDelivered(shipmentId: number, destBranchId: 
     { ...base, title: "Shipment Delivered", body: `Shipment ${trackingId} delivered to ${branchName}. Waiting for BM acknowledgement.` },
     { branch: { ...base, title: "Shipment Delivered", body: `Shipment ${trackingId} has been delivered to ${branchName}. Please acknowledge receipt.` } },
   );
+}
+
+// When the 3PL reaches the hub (hub routes). The hub has to act; the final
+// branch is only told it is on its way.
+export async function notifyDeliveredToHub(shipmentId: number): Promise<void> {
+  const shipment = await loadShipment(shipmentId);
+  if (!shipment?.hubBranchId) return;
+  const trackingId = shipment.trackingId || "N/A";
+  const hubName = await getBranchName(shipment.hubBranchId);
+  const destName = await getBranchName(shipment.destBranchId);
+  const base = { tag: tagFor(shipmentId), url: urlFor(shipmentId) };
+
+  await notifyShipmentAudiences(shipment, "delivered_to_hub",
+    { ...base, title: "Reached Hub", body: `Shipment ${trackingId} reached ${hubName} hub and will be sent on to ${destName}.` },
+    {
+      hub: { ...base, title: "Action Needed: Shipment at Your Hub", body: `Shipment ${trackingId} has arrived at your hub. Please acknowledge receipt, then dispatch it on to ${destName}.` },
+      branch: { ...base, title: "Shipment Reached Hub", body: `Shipment ${trackingId} for your branch reached ${hubName} hub and will be sent on to you.` },
+    },
+  );
+}
+
+// Acknowledgement #1: the hub confirmed it received the shipment.
+export async function notifyHubAcknowledged(shipmentId: number, exceptUserId?: number): Promise<void> {
+  const shipment = await loadShipment(shipmentId);
+  if (!shipment?.hubBranchId) return;
+  const hubName = await getBranchName(shipment.hubBranchId);
+
+  await notifyShipmentAudiences(shipment, "hub_acknowledged", {
+    title: "Hub Acknowledged Receipt",
+    body: `${hubName} hub acknowledged receipt of shipment ${shipment.trackingId || "N/A"}.`,
+    tag: tagFor(shipmentId),
+    url: urlFor(shipmentId),
+  }, {}, exceptUserId);
+}
+
+// The hub sent the shipment on. The final branch has to acknowledge on arrival.
+export async function notifyOnwardDispatched(shipmentId: number, expectedDate?: string, exceptUserId?: number): Promise<void> {
+  const shipment = await loadShipment(shipmentId);
+  if (!shipment?.hubBranchId) return;
+  const trackingId = shipment.trackingId || "N/A";
+  const hubName = await getBranchName(shipment.hubBranchId);
+  const destName = await getBranchName(shipment.destBranchId);
+  const base = { tag: tagFor(shipmentId), url: urlFor(shipmentId) };
+  const expected = expectedDate
+    ? `, expected ${new Date(expectedDate).toLocaleDateString("en-NG", { day: "numeric", month: "short" })}`
+    : "";
+
+  await notifyShipmentAudiences(shipment, "onward_dispatched",
+    { ...base, title: "Dispatched Onward", body: `Shipment ${trackingId} was dispatched from ${hubName} hub to ${destName}${expected}.` },
+    { branch: { ...base, title: "Action Needed: Shipment On Its Way", body: `Shipment ${trackingId} left ${hubName} hub for your branch${expected}. Please acknowledge receipt when it arrives.` } },
+    exceptUserId,
+  );
+}
+
+// A branch recorded that it received a shipment the 3PL never marked
+// delivered. `partial` is set when fewer items arrived than expected.
+export async function notifyBranchMarkedDelivered(
+  shipmentId: number,
+  branchName: string,
+  partial: { received: number; expected: number } | null,
+  exceptUserId?: number,
+): Promise<void> {
+  const shipment = await loadShipment(shipmentId);
+  if (!shipment) return;
+  const trackingId = shipment.trackingId || "N/A";
+  const what = partial
+    ? `recorded ${partial.received} of ${partial.expected} items received for shipment ${trackingId}`
+    : `recorded shipment ${trackingId} as received`;
+
+  await notifyShipmentAudiences(shipment, "branch_marked_delivered", {
+    title: "Receipt Recorded by Branch",
+    body: `${branchName} ${what}. The 3PL had not posted a delivery update.`,
+    tag: tagFor(shipmentId),
+    url: urlFor(shipmentId),
+  }, {}, exceptUserId);
 }
 
 // When shipment is COMPLETED

@@ -7,6 +7,7 @@ export type PushAudience =
   | "ops"        // super_admin, admin, logistics_officer
   | "viewers"    // management staff with the viewer role
   | "branch"     // branch managers of the destination branch
+  | "hub"        // branch managers of the hub the shipment is routed through
   | "creator"    // whoever created the shipment
   | "warehouse"  // warehouse_supply staff
   | "driver"     // the driver assigned to the shipment
@@ -23,10 +24,15 @@ export type ShipmentPushEvent =
   | "tpl_progress" // location update, partial delivery, delay reported
   | "delivery_date_changed"
   | "delivered"
+  | "delivered_to_hub"
+  | "hub_acknowledged"
+  | "onward_dispatched"
+  | "branch_marked_delivered" // a branch recorded receipt because the 3PL never did
   | "completed"
   | "cancelled";
 
-const FOLLOWERS: PushAudience[] = ["ops", "viewers", "branch", "creator"];
+// On a direct route the "hub" audience is simply empty.
+const FOLLOWERS: PushAudience[] = ["ops", "viewers", "branch", "hub", "creator"];
 
 export const PUSH_AUDIENCES: Record<ShipmentPushEvent, PushAudience[]> = {
   created: [...FOLLOWERS, "warehouse"],
@@ -39,6 +45,10 @@ export const PUSH_AUDIENCES: Record<ShipmentPushEvent, PushAudience[]> = {
   tpl_progress: FOLLOWERS,
   delivery_date_changed: FOLLOWERS,
   delivered: FOLLOWERS,
+  delivered_to_hub: FOLLOWERS,
+  hub_acknowledged: FOLLOWERS,
+  onward_dispatched: FOLLOWERS,
+  branch_marked_delivered: [...FOLLOWERS, "tpl"],
   completed: [...FOLLOWERS, "tpl"],
   cancelled: [...FOLLOWERS, "warehouse", "driver", "tpl"],
 };
@@ -54,7 +64,7 @@ export interface PushPayload {
 // manager who also created the shipment) they get ONE push, worded for the
 // audience that most needs to act. "tpl" is resolved separately because 3PL
 // staff live in a different id space from KEDI users.
-const KEDI_AUDIENCE_PRIORITY: PushAudience[] = ["branch", "driver", "warehouse", "creator", "ops", "viewers"];
+const KEDI_AUDIENCE_PRIORITY: PushAudience[] = ["hub", "branch", "driver", "warehouse", "creator", "ops", "viewers"];
 
 export function resolveKediRecipients(
   event: ShipmentPushEvent,

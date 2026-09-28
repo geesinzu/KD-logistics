@@ -77,4 +77,7 @@ export const warehouseQuery = kediQuery.use(requireRoles(["super_admin", "admin"
 export const logisticsQuery = kediQuery.use(requireRoles(["super_admin", "admin", "logistics_officer"]));
 export const driverQuery = kediQuery.use(requireRoles(["super_admin", "admin", "driver"]));
 export const branchManagerQuery = kediQuery.use(requireRoles(["super_admin", "admin", "branch_manager"]));
+// Actions the responsible branch manager must do themselves (no admin override):
+// the person on record is the one who actually received or sent the shipment.
+export const branchOnlyQuery = kediQuery.use(requireRoles(["branch_manager"]));
 export const viewerQuery = kediQuery.use(requireRoles(["super_admin", "admin", "branch_manager", "logistics_officer", "shipment_creator", "driver", "warehouse_supply", "viewer"]));
