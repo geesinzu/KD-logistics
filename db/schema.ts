@@ -200,6 +200,8 @@ export const trackingEvents = mysqlTable("tracking_events", {
     "branch_marked_delivered",
     "hub_acknowledged",
     "onward_dispatched",
+    "tpl_update_reminder",
+    "tpl_update_overdue",
   ]).notNull(),
   oldStatus: varchar("old_status", { length: 30 }),
   newStatus: varchar("new_status", { length: 30 }),

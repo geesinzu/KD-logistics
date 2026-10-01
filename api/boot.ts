@@ -5,6 +5,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { appRouter } from "./router";
 import { createContext } from "./context";
 import { env } from "./lib/env";
+import { startTplReminderScheduler } from "./lib/reminders";
 
 const app = new Hono<{ Bindings: HttpBindings }>();
 
@@ -30,4 +31,6 @@ if (env.isProduction) {
   serve({ fetch: app.fetch, port }, () => {
     console.log(`Server running on http://localhost:${port}/`);
   });
+
+  startTplReminderScheduler();
 }

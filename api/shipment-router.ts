@@ -15,6 +15,7 @@ import {
   receivingBranchId, statusAfterTplFullDelivery, hubAcknowledgeGuard, dispatchOnwardGuard,
   finalAcknowledgeGuard, markReceivedGuard, receiptOutcome, receivedAtError,
 } from "./lib/shipment-flow";
+import { checkTplUpdateReminders } from "./lib/reminders";
 
 // A branch manager sees a shipment if it is going to their branch OR routed
 // through it as a hub. One definition, so the list, stats, attention counts
@@ -1553,5 +1554,14 @@ export const shipmentRouter = createRouter({
           };
         }),
       };
+    }),
+
+  // ── TEST: RUN THE 3PL REMINDER CHECK NOW ──
+  // The real check runs on its own schedule (api/boot.ts, every 30 min) --
+  // this just lets a super admin trigger one pass on demand to verify it's
+  // working, rather than waiting for a real 6-hour gap.
+  runTplReminderCheck: superAdminQuery
+    .mutation(async () => {
+      return checkTplUpdateReminders();
     }),
 });

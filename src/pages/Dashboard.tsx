@@ -6,7 +6,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ROLE_LABELS, STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { Package, Truck, Clock, CheckCircle, AlertTriangle, Plus, UserCheck, Boxes, Timer, Calendar, BarChart3, ChevronDown } from "lucide-react";
+import { Package, Truck, Clock, CheckCircle, AlertTriangle, Plus, UserCheck, Boxes, Timer, Calendar, BarChart3, ChevronDown, Bell } from "lucide-react";
+import { toast } from "sonner";
 
 function getMonthYearOptions() {
   const options: { label: string; value: string }[] = [];
@@ -210,6 +211,11 @@ export default function Dashboard() {
         </Card>
       )}
 
+      {/* Super-admin test trigger -- the real check runs on its own schedule
+          every 30 minutes; this is only so it can be verified on demand
+          without waiting for a real 6-hour gap. */}
+      {role === "super_admin" && <TplReminderTestButton />}
+
       {/* Recent Shipments */}
       <div className="flex items-center justify-between mb-2">
         <h2 className="text-sm font-bold font-display text-ink">Recent Shipments</h2>
@@ -233,5 +239,33 @@ export default function Dashboard() {
         ))}
       </div>
     </div>
+  );
+}
+
+function TplReminderTestButton() {
+  const runCheck = trpc.shipment.runTplReminderCheck.useMutation({
+    onSuccess: (result) => {
+      toast.success(
+        result.withinOperatingHours
+          ? `Checked ${result.shipmentsChecked} shipment(s) · ${result.remindersSent} reminder(s), ${result.escalationsSent} escalation(s) sent`
+          : `Checked ${result.shipmentsChecked} shipment(s) · outside 7am-7pm Lagos, so nothing was sent (this is expected, not an error)`
+      );
+    },
+    onError: (err) => toast.error(err.message),
+  });
+  return (
+    <Card className="border border-dashed border-[#E8E4DC] shadow-none mb-4 rounded-2xl">
+      <CardContent className="p-3.5">
+        <h3 className="text-[11px] font-bold text-ink-soft mb-2 tracking-wide uppercase">Test: 3PL Reminder Check</h3>
+        <p className="text-xs text-ink-soft mb-2">Runs the same check that happens automatically every 30 minutes, right now.</p>
+        <Button
+          size="sm" variant="outline" className="rounded-xl font-semibold border-[#E8E4DC]"
+          disabled={runCheck.isPending}
+          onClick={() => runCheck.mutate()}
+        >
+          <Bell size={14} className="mr-1" /> {runCheck.isPending ? "Running..." : "Run check now"}
+        </Button>
+      </CardContent>
+    </Card>
   );
 }
