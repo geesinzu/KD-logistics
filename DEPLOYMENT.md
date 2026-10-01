@@ -1,4 +1,64 @@
-# Deploying to cPanel shared hosting
+# Deploying
+
+**Current target: Railway.** The app is moving off cPanel shared
+hosting to a Railway service (persistent process, not Passenger) —
+this matters because things like the in-process 3PL reminder scheduler
+(`api/lib/reminders.ts`) rely on the host never killing an idle
+process, which cPanel does and Railway doesn't.
+
+The cPanel instructions further down are kept as-is and the
+`.github/workflows/deploy.yml` pipeline keeps running on every push
+until the Railway deploy is confirmed working end-to-end — don't
+remove either until then.
+
+## Railway setup
+
+Railway deploys straight from the GitHub repo via its own build
+pipeline (Nixpacks) — no GitHub Actions involved on this path at all.
+`railway.json` in the repo root tells it exactly what to do:
+- **Build**: `npm run build` (same command, same output —
+  `dist/boot.mjs` + `dist/public/`).
+- **Start**: `npm start` (`NODE_ENV=production node dist/boot.mjs`).
+- **Health check**: `/api/trpc/health` — Railway waits for a 200 here
+  before routing traffic to the new deploy and rolls back automatically
+  if it never responds, same intent as the cPanel workflow's smoke
+  test but built into the platform instead of a bash polling loop.
+
+The app already reads `process.env.PORT` (`api/boot.ts`), which is
+exactly what Railway injects, so no code changes were needed there.
+
+**One-time setup in the Railway dashboard** (your app service, not the
+MySQL one):
+1. Confirm the service is connected to this GitHub repo and watching
+   `main` (Settings → Source).
+2. Set environment variables (Variables tab) — same values as the
+   cPanel list below:
+   - `DATABASE_URL` — already pointing at the Railway MySQL instance.
+   - `NODE_ENV` — `production`. **Required**: the server only starts
+     listening `if (NODE_ENV === "production")`; without it the app
+     loads and silently does nothing (`api/lib/env.ts`).
+   - `JWT_SECRET` — any long random string.
+   - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` —
+     optional, only needed for push notifications.
+3. **Run schema migrations manually**, same philosophy as cPanel —
+   deliberately not automated on every deploy. Via the Railway CLI:
+   ```
+   railway link        # once, to point the CLI at this project
+   railway run npx drizzle-kit push
+   ```
+   Re-run whenever `db/schema.ts` changes.
+4. Trigger a deploy (push to `main`, or redeploy manually from the
+   Railway dashboard) and confirm the health check passes and the
+   login page loads at the Railway-provided URL (or your custom
+   domain, if attached in Settings → Networking).
+
+Once that's confirmed working, the next step is retiring the cPanel
+pipeline — removing `.github/workflows/deploy.yml` and the "One-time
+cPanel setup" section below. Not done yet; ask before doing it.
+
+---
+
+# Deploying to cPanel shared hosting (legacy — still active for now)
 
 This app builds to two things: `dist/boot.mjs` (a fully self-contained
 server bundle — no `node_modules` needed at runtime) and `dist/public/`
