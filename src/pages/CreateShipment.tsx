@@ -38,7 +38,7 @@ export default function CreateShipment() {
       receiverName: receiverName || undefined,
       receiverPhone: receiverPhone || undefined,
       description: description || undefined,
-      priority: priority as "normal" | "urgent",
+      priority: priority as "normal" | "urgent" | "low",
     });
   };
 
@@ -88,6 +88,7 @@ export default function CreateShipment() {
             <Select value={priority} onValueChange={setPriority}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
+                <SelectItem value="low">Low</SelectItem>
                 <SelectItem value="normal">Normal</SelectItem>
                 <SelectItem value="urgent">Urgent</SelectItem>
               </SelectContent>

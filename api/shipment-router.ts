@@ -165,7 +165,7 @@ export const shipmentRouter = createRouter({
       receiverName: z.string().optional(),
       receiverPhone: z.string().optional(),
       description: z.string().optional(),
-      priority: z.enum(["normal", "urgent"]).default("normal"),
+      priority: z.enum(["normal", "urgent", "low"]).default("normal"),
     }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
