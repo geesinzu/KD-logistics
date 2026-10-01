@@ -23,6 +23,8 @@ export const EVENT_ICONS: Record<string, typeof Bell> = {
   branch_marked_delivered: CheckCircle2,
   hub_acknowledged: CheckCircle2,
   onward_dispatched: Truck,
+  tpl_update_reminder: Bell,
+  tpl_update_overdue: AlertTriangle,
 };
 
 export const EVENT_LABELS: Record<string, string> = {
@@ -45,6 +47,8 @@ export const EVENT_LABELS: Record<string, string> = {
   branch_marked_delivered: "Receipt Recorded by Branch",
   hub_acknowledged: "Hub Acknowledged Receipt",
   onward_dispatched: "Dispatched Onward",
+  tpl_update_reminder: "Reminder Sent to 3PL",
+  tpl_update_overdue: "3PL Update Overdue",
 };
 
 // A handful of legacy tracking_events rows have a corrupted created_at (see

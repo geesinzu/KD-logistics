@@ -407,6 +407,42 @@ export async function notifyShipmentCancelled(shipmentId: number, cancelledBy: s
   }, {}, exceptUserId);
 }
 
+// 3PL has gone quiet on a shipment it currently holds. Deliberately narrow:
+// only the 3PL's own staff are pushed here, not the full PUSH_AUDIENCES list
+// (ops/viewers/branch/hub/creator) -- this can repeat every 2 hours, and
+// everyone else getting pinged each time the 3PL is reminded would just be
+// noise. It's still logged as a tracking event, so it shows up in anyone's
+// activity feed/timeline who already has visibility into the shipment.
+export async function notifyTplUpdateReminder(shipmentId: number, hoursSinceUpdate: number): Promise<void> {
+  if (!isPushConfigured()) return;
+  const shipment = await loadShipment(shipmentId);
+  if (!shipment?.tplId) return;
+  const staff = await getDb().select({ id: tplUsers.id }).from(tplUsers).where(eq(tplUsers.tplId, shipment.tplId));
+  const payload = {
+    title: "Update Needed",
+    body: `${shipment.trackingId || "Your shipment"} has had no update for ${hoursSinceUpdate}h. Please post its current status.`,
+    tag: `shipment-${shipmentId}`,
+    url: `/shipments/${shipmentId}`,
+  };
+  await Promise.allSettled(staff.map(s => sendPushToTplUser(s.id, payload)));
+}
+
+// One-time-per-stale-period escalation to KEDI ops when a 3PL has been silent
+// for 12+ hours -- an internal "go chase this up" alert, not broadcast to
+// everyone who was following the shipment.
+export async function notifyTplUpdateOverdue(shipmentId: number, hoursSinceUpdate: number): Promise<void> {
+  if (!isPushConfigured()) return;
+  const shipment = await loadShipment(shipmentId);
+  if (!shipment) return;
+  const tplName = shipment.tplId ? await getTplCompanyName(shipment.tplId) : "The 3PL";
+  await notifyOpsTeam({
+    title: "3PL Update Overdue",
+    body: `${tplName} has not updated shipment ${shipment.trackingId || "N/A"} for ${hoursSinceUpdate}h.`,
+    tag: `shipment-${shipmentId}`,
+    url: `/shipments/${shipmentId}`,
+  });
+}
+
 // When shipment goes OVERDUE
 export async function notifyShipmentOverdue(shipmentId: number, destBranchId: number, trackingId: string, daysOverdue: number): Promise<void> {
   const branchName = await getBranchName(destBranchId);
