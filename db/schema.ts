@@ -95,7 +95,7 @@ export const shipments = mysqlTable("shipments", {
   // Initial details
   description: text("description"),
   estimatedItemCount: int("estimated_item_count"),
-  priority: mysqlEnum("priority", ["normal", "urgent"]).default("normal").notNull(),
+  priority: mysqlEnum("priority", ["normal", "urgent", "low"]).default("normal").notNull(),
 
   // Warehouse input
   actualItemCount: int("actual_item_count"),
