@@ -16,6 +16,8 @@ const TPL_UPDATE_EVENT_TYPES = [
   "tpl_pickup_from_warehouse",
   "tpl_receipt_confirmed",
   "tpl_location_update",
+  "tpl_sorting_update",
+  "tpl_processing_update",
   "tpl_partial_delivery",
   "tpl_full_delivery",
   "delay_reported",
