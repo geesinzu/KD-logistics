@@ -53,7 +53,7 @@ export default function App() {
         <Route path="/driver/deliveries" element={<ProtectedRoute requiredRoles={["super_admin","admin","driver"]}><DriverDeliveries /></ProtectedRoute>} />
         <Route path="/scan" element={<ProtectedRoute><QrScanner /></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute requiredRoles={["super_admin","admin"]}><Users /></ProtectedRoute>} />
-        <Route path="/reports" element={<ProtectedRoute><Reports /></ProtectedRoute>} />
+        <Route path="/reports" element={<ProtectedRoute requiredRoles={["super_admin","admin","logistics_officer","viewer"]}><Reports /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
       </Route>
