@@ -1357,28 +1357,72 @@ export const shipmentRouter = createRouter({
     }),
 
   // ── ANALYTICS / REPORTS ──
-  // Delivery performance, branch throughput, 3PL comparison, monthly trend.
-  // Scoped the same way as `stats`: drivers see only their own shipments,
-  // branch managers only their branch — everyone else sees the full picture.
+  // Ops-team only (super_admin/admin/logistics_officer/viewer) -- branch
+  // managers and drivers no longer get this at all, and nobody gets a
+  // narrowed view: everyone allowed here sees the full company picture.
+  // No named middleware export for this on purpose (the role list is
+  // specific to this one report, not a reusable group).
+  //
+  // Each metric is scoped to the selected window by its OWN natural date,
+  // not one blanket filter: volume/trend by createdAt, performance (on-time,
+  // transit time, the 3PL/priority tables) by when the shipment actually
+  // finished, reminder/escalation/fallback counts by the event's own time,
+  // hub dwell by when the onward dispatch happened. Previously `months` only
+  // ever bucketed the trend chart -- every other number here was silently
+  // all-time regardless of the selected period.
   analytics: authedQuery
     .input(z.object({ months: z.number().min(1).max(12).default(6) }).optional())
     .query(async ({ ctx, input }) => {
+      if (!ctx.user || !["super_admin", "admin", "logistics_officer", "viewer"].includes(ctx.user.role)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Reports are only available to KEDI's ops team." });
+      }
       const db = getDb();
       const monthsBack = input?.months ?? 6;
+      const now = new Date();
+      const since = new Date(now.getFullYear(), now.getMonth() - (monthsBack - 1), 1);
+      const inWindow = (d: unknown) => {
+        if (!d) return false;
+        const t = new Date(d as string).getTime();
+        return !isNaN(t) && t >= since.getTime() && t <= now.getTime();
+      };
 
-      let allShipments = await db.select().from(shipments);
-      if (ctx.user?.role === "driver") {
-        allShipments = allShipments.filter(s => s.assignedDriverId === ctx.user!.id);
-      } else if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
-        allShipments = allShipments.filter(s => s.destBranchId === ctx.user!.branchId || s.hubBranchId === ctx.user!.branchId);
-      }
+      const allShipments = await db.select().from(shipments);
+      const windowShipments = allShipments.filter(s => inWindow(s.createdAt));
 
       // A 3PL's job is done at the hub on a hub route, so its on-time result
       // and delivered counts are settled there, not at the final branch.
       const doneStatuses: readonly string[] = TPL_DONE_STATUSES;
-      const finished = allShipments.filter(s => doneStatuses.includes(s.status) && (s.deliveredAt || s.completedAt));
+      const finished = allShipments.filter(s => {
+        const finishedAt = s.deliveredAt ?? s.completedAt;
+        return doneStatuses.includes(s.status) && finishedAt && inWindow(finishedAt);
+      });
 
-      let onTime = 0, late = 0, noEta = 0, totalDays = 0, daysCount = 0;
+      // Custody event per shipment: the moment the 3PL actually had it --
+      // KEDI driver dropped it off, or the 3PL collected it directly. KEDI
+      // batch-creates every branch's shipment in one go regardless of
+      // whether the warehouse has supplied it yet, so createdAt (and even
+      // assignedAt, the administrative "assigned to them" moment) can lag
+      // real custody by a lot. Without this, "delivery time" blends KEDI's
+      // own pre-handoff wait into what looks like 3PL performance.
+      const finishedIds = finished.map(s => s.id);
+      const custodyEvents = finishedIds.length > 0
+        ? await db.select({ shipmentId: trackingEvents.shipmentId, createdAt: trackingEvents.createdAt })
+            .from(trackingEvents)
+            .where(and(
+              inArray(trackingEvents.shipmentId, finishedIds),
+              inArray(trackingEvents.eventType, ["driver_dropoff_at_3pl", "tpl_pickup_from_warehouse"]),
+            ))
+            .orderBy(trackingEvents.id)
+        : [];
+      const custodyAtByShipment = new Map<number, Date>();
+      for (const e of custodyEvents) {
+        if (!custodyAtByShipment.has(e.shipmentId) && isValidEventDate(e.createdAt)) {
+          custodyAtByShipment.set(e.shipmentId, new Date(e.createdAt as unknown as string));
+        }
+      }
+
+      let onTime = 0, late = 0, noEta = 0;
+      let kediHoursTotal = 0, kediCount = 0, tplHoursTotal = 0, tplCount = 0;
       for (const s of finished) {
         const finishedAt = (s.deliveredAt ?? s.completedAt)!;
         if (s.estimatedDeliveryDate) {
@@ -1387,53 +1431,126 @@ export const shipmentRouter = createRouter({
         } else {
           noEta++;
         }
-        if (s.createdAt) {
-          totalDays += (new Date(finishedAt).getTime() - new Date(s.createdAt).getTime()) / 86400000;
-          daysCount++;
+        const custodyAt = custodyAtByShipment.get(s.id);
+        if (custodyAt && s.createdAt) {
+          const kediHours = (custodyAt.getTime() - new Date(s.createdAt).getTime()) / 3_600_000;
+          const tplHours = (new Date(finishedAt).getTime() - custodyAt.getTime()) / 3_600_000;
+          if (kediHours >= 0) { kediHoursTotal += kediHours; kediCount++; }
+          if (tplHours >= 0) { tplHoursTotal += tplHours; tplCount++; }
+        }
+      }
+
+      // Reminders/escalations/branch-fallbacks: counted by the event's own
+      // time (did this happen during the period), not tied to where the
+      // shipment ended up or its current status.
+      const tplIdByShipment = new Map<number, number | null>();
+      const destOrHubByShipment = new Map<number, number | null>();
+      for (const s of allShipments) {
+        tplIdByShipment.set(s.id, s.tplId);
+        destOrHubByShipment.set(s.id, s.hubBranchId ?? s.destBranchId);
+      }
+      const signalEvents = await db.select({ shipmentId: trackingEvents.shipmentId, eventType: trackingEvents.eventType, createdAt: trackingEvents.createdAt })
+        .from(trackingEvents)
+        .where(inArray(trackingEvents.eventType, ["tpl_update_reminder", "tpl_update_overdue", "branch_marked_delivered"]));
+      const remindersByTpl = new Map<number, number>();
+      const escalationsByTpl = new Map<number, number>();
+      const fallbacksByTpl = new Map<number, number>();
+      const fallbacksByBranch = new Map<number, number>();
+      for (const e of signalEvents) {
+        if (!inWindow(e.createdAt)) continue;
+        const tplId = tplIdByShipment.get(e.shipmentId);
+        if (e.eventType === "tpl_update_reminder" && tplId) remindersByTpl.set(tplId, (remindersByTpl.get(tplId) ?? 0) + 1);
+        if (e.eventType === "tpl_update_overdue" && tplId) escalationsByTpl.set(tplId, (escalationsByTpl.get(tplId) ?? 0) + 1);
+        if (e.eventType === "branch_marked_delivered") {
+          if (tplId) fallbacksByTpl.set(tplId, (fallbacksByTpl.get(tplId) ?? 0) + 1);
+          const branchId = destOrHubByShipment.get(e.shipmentId);
+          if (branchId) fallbacksByBranch.set(branchId, (fallbacksByBranch.get(branchId) ?? 0) + 1);
+        }
+      }
+
+      // Hub dwell: time between arrival at the hub and onward dispatch,
+      // only meaningful for branches that are actually configured as a hub.
+      const hubDwellByBranch = new Map<number, { totalHours: number; count: number }>();
+      for (const s of allShipments) {
+        if (s.hubBranchId && s.hubArrivedAt && s.onwardDispatchedAt && inWindow(s.onwardDispatchedAt)) {
+          const hours = (new Date(s.onwardDispatchedAt).getTime() - new Date(s.hubArrivedAt).getTime()) / 3_600_000;
+          if (hours >= 0) {
+            const entry = hubDwellByBranch.get(s.hubBranchId) ?? { totalHours: 0, count: 0 };
+            entry.totalHours += hours; entry.count++;
+            hubDwellByBranch.set(s.hubBranchId, entry);
+          }
         }
       }
 
       const branchList = await db.select().from(branches);
+      const hubIds = new Set(branchList.map(b => b.hubBranchId).filter((id): id is number => !!id));
       const byBranch = branchList
         .map(b => {
-          const items = allShipments.filter(s => s.destBranchId === b.id);
+          const items = windowShipments.filter(s => s.destBranchId === b.id);
+          const dwell = hubDwellByBranch.get(b.id);
           return {
             branchId: b.id,
             branchName: b.name,
             total: items.length,
             delivered: items.filter(s => doneStatuses.includes(s.status)).length,
             active: items.filter(s => !doneStatuses.includes(s.status) && s.status !== "cancelled").length,
+            branchFallbacks: fallbacksByBranch.get(b.id) ?? 0,
+            hubDwellHours: hubIds.has(b.id) && dwell ? Math.round((dwell.totalHours / dwell.count) * 10) / 10 : null,
           };
         })
-        .filter(b => b.total > 0)
-        .sort((a, b) => b.total - a.total)
-        .slice(0, 10);
+        .filter(b => b.total > 0 || b.branchFallbacks > 0)
+        .sort((a, b) => b.total - a.total);
 
       const tplList = await db.select().from(thirdPartyLogistics);
       const byTpl = tplList
         .map(t => {
-          const items = allShipments.filter(s => s.tplId === t.id);
-          const finishedItems = items.filter(s => doneStatuses.includes(s.status) && s.estimatedDeliveryDate && (s.deliveredAt || s.completedAt));
-          const tplOnTime = finishedItems.filter(s => new Date((s.deliveredAt ?? s.completedAt)!).getTime() <= new Date(s.estimatedDeliveryDate!).getTime()).length;
+          const items = windowShipments.filter(s => s.tplId === t.id);
+          const finishedItems = finished.filter(s => s.tplId === t.id);
+          const withEta = finishedItems.filter(s => s.estimatedDeliveryDate);
+          const tplOnTime = withEta.filter(s => new Date((s.deliveredAt ?? s.completedAt)!).getTime() <= new Date(s.estimatedDeliveryDate!).getTime()).length;
+          let transitTotal = 0, transitCount = 0;
+          for (const s of finishedItems) {
+            const custodyAt = custodyAtByShipment.get(s.id);
+            if (custodyAt) {
+              const hours = (new Date((s.deliveredAt ?? s.completedAt)!).getTime() - custodyAt.getTime()) / 3_600_000;
+              if (hours >= 0) { transitTotal += hours; transitCount++; }
+            }
+          }
           return {
             tplId: t.id,
             tplName: t.name,
             total: items.length,
-            onTimeRate: finishedItems.length > 0 ? Math.round((tplOnTime / finishedItems.length) * 100) : null,
+            onTimeRate: withEta.length > 0 ? Math.round((tplOnTime / withEta.length) * 100) : null,
+            avgTransitDays: transitCount > 0 ? Math.round((transitTotal / transitCount / 24) * 10) / 10 : null,
+            reminders: remindersByTpl.get(t.id) ?? 0,
+            escalations: escalationsByTpl.get(t.id) ?? 0,
+            branchFallbacks: fallbacksByTpl.get(t.id) ?? 0,
           };
         })
-        .filter(t => t.total > 0)
+        .filter(t => t.total > 0 || t.reminders > 0 || t.escalations > 0)
         .sort((a, b) => b.total - a.total);
+
+      const priorityBreakdown = (["urgent", "normal", "low"] as const)
+        .map(priority => {
+          const items = finished.filter(s => s.priority === priority);
+          const withEta = items.filter(s => s.estimatedDeliveryDate);
+          const pOnTime = withEta.filter(s => new Date((s.deliveredAt ?? s.completedAt)!).getTime() <= new Date(s.estimatedDeliveryDate!).getTime()).length;
+          return {
+            priority,
+            total: items.length,
+            onTimeRate: withEta.length > 0 ? Math.round((pOnTime / withEta.length) * 100) : null,
+          };
+        })
+        .filter(p => p.total > 0);
 
       const statusBreakdown = SHIPMENT_STATUSES
         .map(status => ({
           status,
           label: STATUS_LABELS[status] || status,
-          count: allShipments.filter(s => s.status === status).length,
+          count: windowShipments.filter(s => s.status === status).length,
         }))
         .filter(s => s.count > 0);
 
-      const now = new Date();
       const monthly: { label: string; created: number; delivered: number }[] = [];
       for (let i = monthsBack - 1; i >= 0; i--) {
         const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
@@ -1447,11 +1564,12 @@ export const shipmentRouter = createRouter({
       }
 
       return {
-        totalShipments: allShipments.length,
+        totalShipments: windowShipments.length,
         onTime, late, noEta,
         onTimeRate: (onTime + late) > 0 ? Math.round((onTime / (onTime + late)) * 100) : null,
-        avgDeliveryDays: daysCount > 0 ? Math.round((totalDays / daysCount) * 10) / 10 : null,
-        byBranch, byTpl, monthly, statusBreakdown,
+        avgTplTransitDays: tplCount > 0 ? Math.round((tplHoursTotal / tplCount / 24) * 10) / 10 : null,
+        avgKediProcessingDays: kediCount > 0 ? Math.round((kediHoursTotal / kediCount / 24) * 10) / 10 : null,
+        byBranch, byTpl, monthly, statusBreakdown, priorityBreakdown,
       };
     }),
 

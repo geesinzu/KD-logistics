@@ -207,7 +207,7 @@ export default function Profile() {
           <button onClick={() => navigate("/shipments")} className="w-full flex items-center gap-3 p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors text-left">
             <Package size={18} className="text-[#003B7A]" /><span className="text-sm">My Shipments</span>
           </button>
-          {(isAdmin || user?.role === "branch_manager" || user?.role === "logistics_officer") && (
+          {(isAdmin || user?.role === "logistics_officer" || user?.role === "viewer") && (
             <button onClick={() => navigate("/reports")} className="w-full flex items-center gap-3 p-4 border-b border-gray-50 hover:bg-gray-50 transition-colors text-left">
               <BarChart3 size={18} className="text-[#003B7A]" /><span className="text-sm">Reports</span>
             </button>
