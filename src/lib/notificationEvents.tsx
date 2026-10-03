@@ -1,5 +1,5 @@
 import {
-  Bell, Package, ClipboardList, Tag, Truck, MapPin, CheckCircle2, AlertTriangle,
+  Bell, Package, ClipboardList, Tag, Truck, MapPin, CheckCircle2, AlertTriangle, Boxes, Loader2,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -14,6 +14,8 @@ export const EVENT_ICONS: Record<string, typeof Bell> = {
   tpl_pickup_from_warehouse: Truck,
   tpl_receipt_confirmed: CheckCircle2,
   tpl_location_update: MapPin,
+  tpl_sorting_update: Boxes,
+  tpl_processing_update: Loader2,
   tpl_partial_delivery: AlertTriangle,
   tpl_full_delivery: CheckCircle2,
   delay_reported: AlertTriangle,
@@ -38,6 +40,8 @@ export const EVENT_LABELS: Record<string, string> = {
   tpl_pickup_from_warehouse: "3PL Picked Up",
   tpl_receipt_confirmed: "3PL Confirmed Receipt",
   tpl_location_update: "Location Update",
+  tpl_sorting_update: "Sorting",
+  tpl_processing_update: "Processing",
   tpl_partial_delivery: "Partial Delivery",
   tpl_full_delivery: "Delivered",
   delay_reported: "Delay Reported",

@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
-import { eq, desc, and, or, sql, inArray, gte, lt, lte } from "drizzle-orm";
+import { eq, desc, and, or, sql, inArray, gte, lt, lte, like } from "drizzle-orm";
 import { shipments, trackingEvents, users, branches, thirdPartyLogistics, activityLog } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { createRouter, authedQuery, adminQuery, superAdminQuery, branchManagerQuery, branchOnlyQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
@@ -482,7 +482,7 @@ export const shipmentRouter = createRouter({
     .input(z.object({
       shipmentId: z.number(),
       location: z.string(),
-      updateType: z.enum(["location_update", "partial_delivery", "full_delivery", "delay_reported"]),
+      updateType: z.enum(["location_update", "sorting_update", "processing_update", "partial_delivery", "full_delivery", "delay_reported"]),
       deliveredQty: z.number().optional(),
       notes: z.string().optional(),
     }))
@@ -521,9 +521,16 @@ export const shipmentRouter = createRouter({
       } else if (input.updateType === "delay_reported") {
         eventNotes = `Delay reported at ${input.location}: ${input.notes || ""}`;
       } else {
+        // location_update, sorting_update, processing_update all just mean
+        // "still in transit, here's what's happening" -- same status change,
+        // distinguished only by the event type/wording so the timeline shows
+        // a precise label instead of generic free text.
         newStatus = "in_transit_with_3pl";
         await db.update(shipments).set({ status: newStatus }).where(eq(shipments.id, input.shipmentId));
-        eventNotes = `In transit: ${input.location}. ${input.notes || ""}`;
+        const verb = input.updateType === "sorting_update" ? "Being sorted"
+          : input.updateType === "processing_update" ? "Being processed"
+          : "In transit";
+        eventNotes = `${verb}: ${input.location}. ${input.notes || ""}`;
       }
 
       const actorId3 = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
@@ -533,6 +540,8 @@ export const shipmentRouter = createRouter({
         eventType: input.updateType === "partial_delivery" ? "tpl_partial_delivery"
           : input.updateType === "full_delivery" ? "tpl_full_delivery"
           : input.updateType === "delay_reported" ? "delay_reported"
+          : input.updateType === "sorting_update" ? "tpl_sorting_update"
+          : input.updateType === "processing_update" ? "tpl_processing_update"
           : "tpl_location_update",
         oldStatus: shipment[0].status,
         newStatus,
@@ -557,6 +566,8 @@ export const shipmentRouter = createRouter({
             input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A",
             input.updateType === "partial_delivery" ? "tpl_partial_delivery"
               : input.updateType === "delay_reported" ? "delay_reported"
+              : input.updateType === "sorting_update" ? "tpl_sorting_update"
+              : input.updateType === "processing_update" ? "tpl_processing_update"
               : "tpl_location_update",
             input.location
           ).catch(() => {});
@@ -839,6 +850,14 @@ export const shipmentRouter = createRouter({
         } else if (statuses.length > 1) {
           conditions.push(inArray(shipments.status, statuses as any));
         }
+      }
+      if (input?.search) {
+        // Declared in the input schema but never actually applied to the
+        // query -- the search box looked functional but silently did
+        // nothing. Matches tracking ID (the field's own placeholder text)
+        // or receiver name.
+        const term = `%${input.search.trim()}%`;
+        conditions.push(or(like(shipments.trackingId, term), like(shipments.receiverName, term)));
       }
       if (input?.tplId) conditions.push(eq(shipments.tplId, input.tplId));
       if (input?.year && input?.month) {

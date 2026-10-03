@@ -335,6 +335,8 @@ export default function TplPortal() {
                   <SelectTrigger><SelectValue placeholder="What happened?" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="location_update">Location Update (In Transit)</SelectItem>
+                    <SelectItem value="sorting_update">Sorting</SelectItem>
+                    <SelectItem value="processing_update">Processing</SelectItem>
                     <SelectItem value="partial_delivery">Partial Delivery</SelectItem>
                     <SelectItem value="full_delivery">Full Delivery Complete</SelectItem>
                     <SelectItem value="delay_reported">Report Delay</SelectItem>

@@ -262,6 +262,8 @@ export async function notify3plStatusUpdate(shipmentId: number, tplId: number, t
     tpl_pickup_from_warehouse: `picked up from warehouse`,
     tpl_receipt_confirmed: `confirmed receipt`,
     tpl_location_update: `updated location: ${location || "in transit"}`,
+    tpl_sorting_update: `reported sorting at: ${location || "a facility"}`,
+    tpl_processing_update: `reported processing at: ${location || "a facility"}`,
     tpl_partial_delivery: `reported partial delivery`,
     tpl_full_delivery: `completed delivery`,
     delay_reported: `reported a delay`,
