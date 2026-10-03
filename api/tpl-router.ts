@@ -6,6 +6,8 @@ import { createRouter, publicQuery, tplQuery, adminQuery } from "./middleware";
 import bcrypt from "bcryptjs";
 import { createTplToken } from "./lib/auth";
 
+const PHONE_REGEX = /^\d{11}$/;
+
 export const tplRouter = createRouter({
   list: publicQuery.query(async () => {
     const db = getDb();
@@ -57,7 +59,7 @@ export const tplRouter = createRouter({
   createUser: adminQuery
     .input(z.object({
       name: z.string().min(2),
-      phone: z.string().min(10),
+      phone: z.string().regex(PHONE_REGEX, "Enter an 11-digit phone number"),
       password: z.string().min(4),
       tplId: z.number(),
       role: z.string().default("tpl_staff"),

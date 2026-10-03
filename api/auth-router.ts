@@ -8,6 +8,11 @@ import { createToken } from "./lib/auth";
 import { createRouter, publicQuery, authedQuery } from "./middleware";
 import { ErrorMessages } from "@contracts/constants";
 
+// Nigerian local format, e.g. 08012345678 -- matches the placeholder already
+// shown on every phone field in this app.
+const PHONE_REGEX = /^\d{11}$/;
+const PHONE_MESSAGE = "Enter an 11-digit phone number";
+
 export const authRouter = createRouter({
   me: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
@@ -24,8 +29,9 @@ export const authRouter = createRouter({
     .input(
       z.object({
         name: z.string().min(2).max(100),
-        phone: z.string().min(10).max(20),
+        phone: z.string().regex(PHONE_REGEX, PHONE_MESSAGE),
         password: z.string().min(6).max(100),
+        branchId: z.number().optional(),
       })
     )
     .mutation(async ({ input }) => {
@@ -43,8 +49,17 @@ export const authRouter = createRouter({
         name: input.name,
         phone: input.phone,
         passwordHash,
-        role: "driver",
+        // No role picker at signup -- the real role list can't cover every
+        // actual KEDI job title, so letting someone self-select "closest
+        // match" (e.g. a branch finance officer picking Branch Manager)
+        // just hands the reviewing admin a plausible-looking guess to
+        // rubber-stamp instead of making them decide for real. "viewer" is
+        // a genuinely safe placeholder either way -- read-only, no
+        // operational side effects -- until that real decision happens in
+        // the Users review screen.
+        role: "viewer",
         status: "pending",
+        branchId: input.branchId,
       });
       return { success: true, message: "Account created. Waiting for admin approval." };
     }),

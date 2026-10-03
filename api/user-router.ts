@@ -6,6 +6,8 @@ import { getDb } from "./queries/connection";
 import { createRouter, adminQuery, superAdminQuery, authedQuery } from "./middleware";
 import type { KediRole } from "@contracts/constants";
 
+const PHONE_REGEX = /^\d{11}$/;
+
 export const userRouter = createRouter({
   list: authedQuery
     .input(
@@ -90,6 +92,26 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
+  // ── APPROVE A PENDING SIGNUP ──
+  // Sets role, branch and status together so a pending user is never left
+  // half-configured -- the role/branch they self-requested at signup is a
+  // request, not a grant; this is where an admin confirms or corrects it
+  // before the account can actually log in. adminQuery (not superAdminQuery,
+  // unlike updateRole) to match `create`'s access level -- an admin who can
+  // freely set any role when adding a user directly shouldn't hit a
+  // permissions wall doing the equivalent for a self-signup.
+  approveUser: adminQuery
+    .input(z.object({ id: z.number(), role: z.string(), branchId: z.number().nullable() }))
+    .mutation(async ({ input }) => {
+      const db = getDb();
+      await db.update(users).set({
+        role: input.role as KediRole,
+        branchId: input.branchId,
+        status: "active",
+      }).where(eq(users.id, input.id));
+      return { success: true };
+    }),
+
   updateBranch: adminQuery
     .input(z.object({ id: z.number(), branchId: z.number().nullable() }))
     .mutation(async ({ input }) => {
@@ -109,7 +131,7 @@ export const userRouter = createRouter({
   create: adminQuery
     .input(z.object({
       name: z.string().min(2),
-      phone: z.string().min(10),
+      phone: z.string().regex(PHONE_REGEX, "Enter an 11-digit phone number"),
       role: z.string(),
       branchId: z.number().optional(),
       password: z.string().min(6).optional(),
