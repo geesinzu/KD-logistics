@@ -4,7 +4,10 @@ import { trpc } from "@/providers/trpc";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Package, Info } from "lucide-react";
+
+const PHONE_REGEX = /^\d{11}$/;
 
 export default function Signup() {
   const navigate = useNavigate();
@@ -12,8 +15,11 @@ export default function Signup() {
   const [phone, setPhone] = useState("");
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
+  const [branchId, setBranchId] = useState("19");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  const { data: branches } = trpc.branch.list.useQuery();
 
   const signupMutation = trpc.auth.signup.useMutation({
     onSuccess: (data) => {
@@ -26,9 +32,10 @@ export default function Signup() {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+    if (!PHONE_REGEX.test(phone)) { setError("Enter an 11-digit phone number"); return; }
     if (password !== confirm) { setError("Passwords do not match"); return; }
     if (password.length < 6) { setError("Password must be at least 6 characters"); return; }
-    signupMutation.mutate({ name, phone, password });
+    signupMutation.mutate({ name, phone, password, branchId: branchId ? Number(branchId) : undefined });
   };
 
   return (
@@ -43,7 +50,18 @@ export default function Signup() {
         </div>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div><Label>Full Name</Label><Input value={name} onChange={e => setName(e.target.value)} placeholder="John Doe" required /></div>
-          <div><Label>Phone Number</Label><Input value={phone} onChange={e => setPhone(e.target.value)} placeholder="+234 801 234 5678" required /></div>
+          <div>
+            <Label>Phone Number</Label>
+            <Input value={phone} onChange={e => setPhone(e.target.value.replace(/\D/g, "").slice(0, 11))} placeholder="08012345678" inputMode="numeric" maxLength={11} required />
+          </div>
+          <div>
+            <Label>Branch (optional)</Label>
+            <Select value={branchId} onValueChange={setBranchId}>
+              <SelectTrigger><SelectValue placeholder="Choose a branch..." /></SelectTrigger>
+              <SelectContent>{branches?.map((b: any) => <SelectItem key={b.id} value={String(b.id)}>{b.name}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <p className="text-[11px] text-gray-400 -mt-2">Your role is assigned by an admin when your account is approved.</p>
           <div><Label>Password</Label><Input type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="Min 6 characters" required /></div>
           <div><Label>Confirm Password</Label><Input type="password" value={confirm} onChange={e => setConfirm(e.target.value)} placeholder="Repeat password" required /></div>
           {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</p>}
