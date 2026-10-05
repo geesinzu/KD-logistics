@@ -1390,15 +1390,19 @@ export const shipmentRouter = createRouter({
   // ever bucketed the trend chart -- every other number here was silently
   // all-time regardless of the selected period.
   analytics: authedQuery
-    .input(z.object({ months: z.number().min(1).max(12).default(6) }).optional())
+    .input(z.object({ from: z.string(), to: z.string() }))
     .query(async ({ ctx, input }) => {
       if (!ctx.user || !["super_admin", "admin", "logistics_officer", "viewer"].includes(ctx.user.role)) {
         throw new TRPCError({ code: "FORBIDDEN", message: "Reports are only available to KEDI's ops team." });
       }
       const db = getDb();
-      const monthsBack = input?.months ?? 6;
-      const now = new Date();
-      const since = new Date(now.getFullYear(), now.getMonth() - (monthsBack - 1), 1);
+      const since = new Date(input.from);
+      const now = new Date(`${input.to}T23:59:59`);
+      // The monthly trend chart buckets by calendar month -- cap at 12 bars
+      // so a multi-year range still renders a readable chart (shows the
+      // most recent 12 months within the selected range).
+      const monthsSpan = (now.getFullYear() - since.getFullYear()) * 12 + (now.getMonth() - since.getMonth()) + 1;
+      const monthsBack = Math.min(Math.max(monthsSpan, 1), 12);
       const inWindow = (d: unknown) => {
         if (!d) return false;
         const t = new Date(d as string).getTime();
@@ -1590,6 +1594,99 @@ export const shipmentRouter = createRouter({
         avgKediProcessingDays: kediCount > 0 ? Math.round((kediHoursTotal / kediCount / 24) * 10) / 10 : null,
         byBranch, byTpl, monthly, statusBreakdown, priorityBreakdown,
       };
+    }),
+
+  // ── REPORTS: DRILL INTO ONE 3PL'S HISTORY ──
+  // Tapping a row in the Reports 3PL table opens this -- always the trailing
+  // 12 months regardless of whatever range is selected on the main report,
+  // since the point of a trend view is the longer-term pattern (a narrow
+  // main-report window could otherwise render a near-empty 1-bar chart).
+  // Same ops-team gate as `analytics`; deliberately not sharing logic with
+  // it -- each is small and self-contained, matching this file's style.
+  tplTrend: authedQuery
+    .input(z.object({ tplId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.user || !["super_admin", "admin", "logistics_officer", "viewer"].includes(ctx.user.role)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Reports are only available to KEDI's ops team." });
+      }
+      const db = getDb();
+      const now = new Date();
+      const since = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      const doneStatuses: readonly string[] = TPL_DONE_STATUSES;
+
+      const items = await db.select().from(shipments).where(eq(shipments.tplId, input.tplId));
+      const finished = items.filter(s => {
+        const finishedAt = s.deliveredAt ?? s.completedAt;
+        if (!doneStatuses.includes(s.status) || !finishedAt) return false;
+        const t = new Date(finishedAt).getTime();
+        return t >= since.getTime() && t <= now.getTime();
+      });
+
+      const monthly: { label: string; total: number; onTimeRate: number | null }[] = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const y = d.getFullYear(), m = d.getMonth();
+        const monthItems = finished.filter(s => {
+          const finishedAt = (s.deliveredAt ?? s.completedAt)!;
+          const fd = new Date(finishedAt);
+          return fd.getFullYear() === y && fd.getMonth() === m;
+        });
+        const withEta = monthItems.filter(s => s.estimatedDeliveryDate);
+        const onTime = withEta.filter(s => new Date((s.deliveredAt ?? s.completedAt)!).getTime() <= new Date(s.estimatedDeliveryDate!).getTime()).length;
+        monthly.push({
+          label: d.toLocaleDateString("en-NG", { month: "short" }),
+          total: monthItems.length,
+          onTimeRate: withEta.length > 0 ? Math.round((onTime / withEta.length) * 100) : null,
+        });
+      }
+
+      const tpl = await db.select({ name: thirdPartyLogistics.name }).from(thirdPartyLogistics).where(eq(thirdPartyLogistics.id, input.tplId)).limit(1);
+      return { tplName: tpl[0]?.name || "Unknown", monthly };
+    }),
+
+  // ── REPORTS: DRILL INTO ONE BRANCH'S HISTORY ──
+  // Same trailing-12-months design as tplTrend, above.
+  branchTrend: authedQuery
+    .input(z.object({ branchId: z.number() }))
+    .query(async ({ ctx, input }) => {
+      if (!ctx.user || !["super_admin", "admin", "logistics_officer", "viewer"].includes(ctx.user.role)) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Reports are only available to KEDI's ops team." });
+      }
+      const db = getDb();
+      const now = new Date();
+      const since = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+      const doneStatuses: readonly string[] = TPL_DONE_STATUSES;
+
+      const allItems = await db.select().from(shipments).where(eq(shipments.destBranchId, input.branchId));
+      const items = allItems.filter(s => s.createdAt && new Date(s.createdAt).getTime() >= since.getTime());
+      const ids = items.map(s => s.id);
+      const fallbackEvents = ids.length > 0
+        ? await db.select({ shipmentId: trackingEvents.shipmentId, createdAt: trackingEvents.createdAt })
+            .from(trackingEvents)
+            .where(and(inArray(trackingEvents.shipmentId, ids), eq(trackingEvents.eventType, "branch_marked_delivered")))
+        : [];
+
+      const monthly: { label: string; total: number; delivered: number; branchFallbacks: number }[] = [];
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        const y = d.getFullYear(), m = d.getMonth();
+        const monthItems = items.filter(s => s.createdAt && new Date(s.createdAt).getFullYear() === y && new Date(s.createdAt).getMonth() === m);
+        const monthItemIds = new Set(monthItems.map(s => s.id));
+        const fallbacks = fallbackEvents.filter(e => {
+          if (!monthItemIds.has(e.shipmentId) || !e.createdAt) return false;
+          const ed = new Date(e.createdAt);
+          return ed.getFullYear() === y && ed.getMonth() === m;
+        }).length;
+        monthly.push({
+          label: d.toLocaleDateString("en-NG", { month: "short" }),
+          total: monthItems.length,
+          delivered: monthItems.filter(s => doneStatuses.includes(s.status)).length,
+          branchFallbacks: fallbacks,
+        });
+      }
+
+      const branch = await db.select({ name: branches.name }).from(branches).where(eq(branches.id, input.branchId)).limit(1);
+      return { branchName: branch[0]?.name || "Unknown", monthly };
     }),
 
   // ── RECENT ACTIVITY (for the in-app notification center) ──
