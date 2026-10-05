@@ -8,6 +8,7 @@ import Dashboard from "./pages/Dashboard";
 import Shipments from "./pages/Shipments";
 import ShipmentDetail from "./pages/ShipmentDetail";
 import CreateShipment from "./pages/CreateShipment";
+import BulkCreateShipments from "./pages/BulkCreateShipments";
 import WarehouseProcess from "./pages/WarehouseProcess";
 import Assign3pl from "./pages/Assign3pl";
 import DriverDeliveries from "./pages/DriverDeliveries";
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="/shipments" element={<ProtectedRoute><Shipments /></ProtectedRoute>} />
         <Route path="/shipments/:id" element={<ProtectedRoute><ShipmentDetail /></ProtectedRoute>} />
         <Route path="/shipments/create" element={<ProtectedRoute requiredRoles={["super_admin","admin","shipment_creator","logistics_officer"]}><CreateShipment /></ProtectedRoute>} />
+        <Route path="/shipments/create-bulk" element={<ProtectedRoute requiredRoles={["super_admin","admin","shipment_creator","logistics_officer"]}><BulkCreateShipments /></ProtectedRoute>} />
         <Route path="/warehouse/:id" element={<ProtectedRoute requiredRoles={["super_admin","admin","warehouse_supply"]}><WarehouseProcess /></ProtectedRoute>} />
         <Route path="/assign-3pl/:id" element={<ProtectedRoute requiredRoles={["super_admin","admin","logistics_officer"]}><Assign3pl /></ProtectedRoute>} />
         <Route path="/driver/deliveries" element={<ProtectedRoute requiredRoles={["super_admin","admin","driver"]}><DriverDeliveries /></ProtectedRoute>} />
