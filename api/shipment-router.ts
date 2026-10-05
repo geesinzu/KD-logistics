@@ -200,6 +200,81 @@ export const shipmentRouter = createRouter({
       return { success: true, shipmentId };
     }),
 
+  // ── LOOK UP EACH BRANCH'S MOST RECENT RECEIVER (for bulk-create pre-fill) ──
+  lastReceiverForBranches: shipmentCreatorQuery
+    .input(z.object({ branchIds: z.array(z.number()) }))
+    .query(async ({ input }) => {
+      if (input.branchIds.length === 0) return [];
+      const db = getDb();
+      const rows = await db.select({
+        branchId: shipments.destBranchId,
+        receiverName: shipments.receiverName,
+        receiverPhone: shipments.receiverPhone,
+      })
+        .from(shipments)
+        .where(and(inArray(shipments.destBranchId, input.branchIds), sql`${shipments.receiverName} is not null`))
+        .orderBy(desc(shipments.id));
+      // Rows arrive newest-first, so the first one seen per branch is the
+      // most recent -- same in-memory-reduction style as `analytics`.
+      const seen = new Set<number>();
+      const result: { branchId: number; receiverName: string | null; receiverPhone: string | null }[] = [];
+      for (const r of rows) {
+        if (!r.branchId || seen.has(r.branchId)) continue;
+        seen.add(r.branchId);
+        result.push({ branchId: r.branchId, receiverName: r.receiverName, receiverPhone: r.receiverPhone });
+      }
+      return result;
+    }),
+
+  // ── CREATE SHIPMENTS FOR SEVERAL BRANCHES AT ONCE ──
+  // Same per-shipment logic as `create` above, just looped -- one shared
+  // description, each branch keeping its own receiver and priority. No SQL
+  // transaction wrapping the loop: nothing else in this file uses one
+  // either, so a partial failure leaves whatever succeeded so far created,
+  // the same risk profile the rest of the system already has.
+  createBulk: shipmentCreatorQuery
+    .input(z.object({
+      description: z.string().optional(),
+      branches: z.array(z.object({
+        destBranchId: z.number(),
+        receiverName: z.string().optional(),
+        receiverPhone: z.string().optional(),
+        priority: z.enum(["normal", "urgent", "low"]).default("normal"),
+      })).min(1),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const shipmentIds: number[] = [];
+      for (const b of input.branches) {
+        const branch = await db.select().from(branches).where(eq(branches.id, b.destBranchId)).limit(1);
+        const result = await db.insert(shipments).values({
+          createdBy: ctx.user.id,
+          creatorRole: ctx.user.role,
+          originBranchId: 19, // Lagos HQ
+          destBranchId: b.destBranchId,
+          hubBranchId: branch[0]?.hubBranchId ?? null,
+          receiverName: b.receiverName,
+          receiverPhone: b.receiverPhone,
+          description: input.description,
+          priority: b.priority,
+          status: "created",
+        });
+        const shipmentId = Number(result[0].insertId);
+        shipmentIds.push(shipmentId);
+        await db.insert(trackingEvents).values({
+          shipmentId,
+          eventType: "created",
+          newStatus: "created",
+          notes: `Shipment created by ${ctx.user.name} for ${b.receiverName || "branch"} (bulk create)`,
+          createdBy: ctx.user.id,
+          actorRole: ctx.user.role,
+        });
+        const trackingId = branch[0] ? generateTrackingId(branch[0].name) : "pending";
+        void notifyShipmentCreated(shipmentId, b.destBranchId, trackingId).catch(() => {});
+      }
+      return { success: true, shipmentIds };
+    }),
+
   // ── WAREHOUSE: INPUT ITEMS & GENERATE LABEL (Step 2-3) ──
   warehouseProcess: warehouseQuery
     .input(z.object({

@@ -6,7 +6,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ROLE_LABELS, STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { Package, Truck, Clock, CheckCircle, AlertTriangle, Plus, UserCheck, Boxes, Timer, Calendar, BarChart3, ChevronDown, Bell } from "lucide-react";
+import { Package, Truck, Clock, CheckCircle, AlertTriangle, Plus, UserCheck, Boxes, Timer, Calendar, BarChart3, ChevronDown, Bell, Copy } from "lucide-react";
 import { toast } from "sonner";
 
 function getMonthYearOptions() {
@@ -76,10 +76,15 @@ export default function Dashboard() {
 
       {/* Quick Actions */}
       {role && (["super_admin", "admin", "shipment_creator", "logistics_officer", "viewer"].includes(role)) && (
-        <div className="flex gap-2 mb-4">
+        <div className="flex flex-wrap gap-2 mb-4">
           {["super_admin", "admin", "shipment_creator", "logistics_officer"].includes(role) && (
             <Button size="sm" className="bg-navy hover:bg-[#0F2039] flex-1 h-11 rounded-xl font-semibold" onClick={() => navigate("/shipments/create")}>
               <Plus size={16} className="mr-1" /> New Shipment
+            </Button>
+          )}
+          {["super_admin", "admin", "shipment_creator", "logistics_officer"].includes(role) && (
+            <Button size="sm" variant="outline" className="h-11 rounded-xl font-semibold border-[#E8E4DC] text-ink hover:bg-white" onClick={() => navigate("/shipments/create-bulk")}>
+              <Copy size={16} className="mr-1" /> Bulk Create
             </Button>
           )}
           {["super_admin", "admin", "logistics_officer", "viewer"].includes(role) && (
