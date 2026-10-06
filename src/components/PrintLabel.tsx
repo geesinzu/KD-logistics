@@ -55,34 +55,34 @@ export function PrintLabel({
           @page { size: A4 portrait; margin: 15mm; }
           * { box-sizing: border-box; margin: 0; padding: 0; }
           body { font-family: 'Segoe UI', Arial, sans-serif; background: white; color: #1E293B; }
-          .label-container { max-width: 210mm; margin: 0 auto; padding: 20px; }
-          .header { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; padding-bottom: 14px; border-bottom: 3px solid #003B7A; }
+          .label-container { max-width: 210mm; margin: 0 auto; padding: 6px; }
+          .header { display: flex; align-items: center; gap: 16px; margin-bottom: 14px; padding-bottom: 10px; border-bottom: 3px solid #003B7A; }
           .logo-box { width: 56px; height: 56px; background: #003B7A; border-radius: 8px; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; font-size: 20px; }
           .header-text h1 { font-size: 22px; font-weight: 800; color: #003B7A; letter-spacing: -0.5px; }
           .header-text p { font-size: 11px; color: #64748B; margin-top: 2px; }
-          .tracking-section { background: #F1F5F9; border-radius: 8px; padding: 14px; margin-bottom: 16px; text-align: center; }
+          .tracking-section { background: #F1F5F9; border-radius: 8px; padding: 10px; margin-bottom: 12px; text-align: center; }
           .tracking-label { font-size: 10px; text-transform: uppercase; letter-spacing: 1px; color: #64748B; margin-bottom: 4px; }
           .tracking-id { font-size: 32px; font-weight: 800; color: #003B7A; letter-spacing: 4px; font-family: 'Courier New', monospace; }
-          .qr-code { margin: 8px auto 0; width: 120px; height: 120px; display: block; }
-          .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 16px; }
-          .detail-box { border: 1.5px solid #E2E8F0; border-radius: 6px; padding: 12px; }
-          .detail-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #94A3B8; margin-bottom: 4px; font-weight: 700; }
+          .qr-code { margin: 6px auto 0; width: 95px; height: 95px; display: block; }
+          .details-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 12px; }
+          .detail-box { border: 1.5px solid #E2E8F0; border-radius: 6px; padding: 9px 10px; }
+          .detail-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #94A3B8; margin-bottom: 3px; font-weight: 700; }
           /* BOLDER + SLIGHTLY BIGGER: From, To, Item Count, Weight */
-          .detail-value { font-size: 16px; font-weight: 800; color: #1E293B; }
-          .items-box { border: 1px solid #E2E8F0; border-radius: 6px; padding: 10px; margin-bottom: 16px; }
-          .items-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #94A3B8; margin-bottom: 4px; font-weight: 700; }
-          .items-value { font-size: 12px; color: #334155; line-height: 1.5; }
-          .signature-section { margin-top: 20px; }
+          .detail-value { font-size: 15px; font-weight: 800; color: #1E293B; }
+          .items-box { border: 1px solid #E2E8F0; border-radius: 6px; padding: 8px 10px; margin-bottom: 10px; }
+          .items-label { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; color: #94A3B8; margin-bottom: 3px; font-weight: 700; }
+          .items-value { font-size: 11.5px; color: #334155; line-height: 1.4; }
+          .signature-section { margin-top: 12px; }
           /* BOLDER + SLIGHTLY BIGGER: Acknowledgement title */
-          .sig-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #64748B; margin-bottom: 10px; font-weight: 800; }
+          .sig-title { font-size: 12px; text-transform: uppercase; letter-spacing: 1px; color: #64748B; margin-bottom: 8px; font-weight: 800; }
           .sig-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-          .sig-box { border: 1.5px solid #CBD5E1; border-radius: 6px; padding: 14px; }
+          .sig-box { border: 1.5px solid #CBD5E1; border-radius: 6px; padding: 10px; }
           /* BOLDER + SLIGHTLY BIGGER: Released by Warehouse / Received by 3PL */
-          .sig-header { font-size: 13px; font-weight: 800; color: #003B7A; margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1.5px solid #E2E8F0; }
-          .sig-field { margin-bottom: 14px; }
-          .sig-field-label { font-size: 9px; color: #94A3B8; text-transform: uppercase; margin-bottom: 4px; font-weight: 700; }
-          .sig-line { border-bottom: 1.5px solid #94A3B8; height: 28px; }
-          .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #E2E8F0; text-align: center; font-size: 9px; color: #94A3B8; }
+          .sig-header { font-size: 13px; font-weight: 800; color: #003B7A; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1.5px solid #E2E8F0; }
+          .sig-field { margin-bottom: 8px; }
+          .sig-field-label { font-size: 9px; color: #94A3B8; text-transform: uppercase; margin-bottom: 3px; font-weight: 700; }
+          .sig-line { border-bottom: 1.5px solid #94A3B8; height: 20px; }
+          .footer { margin-top: 12px; padding-top: 8px; border-top: 1px solid #E2E8F0; text-align: center; font-size: 9px; color: #94A3B8; }
           @media print {
             .no-print { display: none !important; }
             body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
