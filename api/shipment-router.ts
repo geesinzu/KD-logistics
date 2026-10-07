@@ -1215,12 +1215,27 @@ export const shipmentRouter = createRouter({
     }),
 
   // ── SUPER ADMIN: PERMANENTLY DELETE A SINGLE TRACKING EVENT ──
+  // Deleting the log entry is only half the story for an event that changed
+  // the shipment's status: that status lives in a separate column, set by
+  // the same mutation that inserted the event, and nothing reads the
+  // event's oldStatus/newStatus back automatically. So: revert the status
+  // too, but only when this event is still the current "tip" -- if
+  // something later moved the shipment further, rolling back to this
+  // event's oldStatus would contradict everything that happened since, so
+  // in that case only the log entry comes out, same as before.
   deleteTrackingEvent: superAdminQuery
     .input(z.object({ eventId: z.number() }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const event = await db.select().from(trackingEvents).where(eq(trackingEvents.id, input.eventId)).limit(1);
       if (!event[0]) throw new Error("Event not found");
+
+      const shipment = await db.select().from(shipments).where(eq(shipments.id, event[0].shipmentId)).limit(1);
+      const willRevert = !!(
+        event[0].oldStatus && event[0].newStatus && event[0].oldStatus !== event[0].newStatus &&
+        shipment[0] && shipment[0].status === event[0].newStatus
+      );
+      const milestoneField = willRevert ? EVENT_TYPE_SHIPMENT_DATE_FIELD[event[0].eventType] : undefined;
 
       await db.insert(activityLog).values({
         userId: ctx.user.id,
@@ -1232,12 +1247,22 @@ export const shipmentRouter = createRouter({
           eventType: event[0].eventType,
           notes: event[0].notes,
           deletedBy: ctx.user.name,
+          revertedStatusTo: willRevert ? event[0].oldStatus : null,
         },
       });
 
       await db.delete(trackingEvents).where(eq(trackingEvents.id, input.eventId));
 
-      return { success: true };
+      if (willRevert) {
+        await db.update(shipments)
+          .set({
+            status: event[0].oldStatus as (typeof SHIPMENT_STATUSES)[number],
+            ...(milestoneField && milestoneField !== "createdAt" ? { [milestoneField]: null } : {}),
+          })
+          .where(eq(shipments.id, event[0].shipmentId));
+      }
+
+      return { success: true, revertedStatus: willRevert ? event[0].oldStatus : null };
     }),
 
   // ── STATS ──

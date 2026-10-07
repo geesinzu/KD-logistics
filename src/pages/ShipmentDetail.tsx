@@ -54,8 +54,10 @@ export default function ShipmentDetail() {
   });
 
   const deleteEventMutation = trpc.shipment.deleteTrackingEvent.useMutation({
-    onSuccess: () => {
-      toast.success("Event deleted");
+    onSuccess: (result) => {
+      toast.success(result.revertedStatus
+        ? `Event deleted — status reverted to ${STATUS_LABELS[result.revertedStatus] || result.revertedStatus}`
+        : "Event deleted");
       utils.shipment.getById.invalidate({ id: Number(id) });
     },
     onError: (err) => toast.error(err.message),
@@ -72,7 +74,27 @@ export default function ShipmentDetail() {
   });
 
   const handleDeleteEvent = (eventId: number) => {
-    if (!confirm("Permanently delete this tracking event? This cannot be undone.")) return;
+    // Mirrors the backend's own check (which is the real source of truth)
+    // purely to show an accurate confirmation message -- an event only
+    // changed status if it has a real oldStatus/newStatus pair, and that
+    // status change only still applies if nothing later moved the
+    // shipment further (current status still matches this event's
+    // newStatus).
+    const event = shipment?.trackingEvents?.find((e) => e.id === eventId);
+    const oldStatus = event?.oldStatus;
+    const newStatus = event?.newStatus;
+    const changedStatus = !!(oldStatus && newStatus && oldStatus !== newStatus);
+    const isCurrentTip = changedStatus && shipment?.status === newStatus;
+
+    let message = "Permanently delete this tracking event? This cannot be undone.";
+    if (isCurrentTip && oldStatus && newStatus) {
+      const from = STATUS_LABELS[newStatus] || newStatus;
+      const to = STATUS_LABELS[oldStatus] || oldStatus;
+      message = `Permanently delete this event? This will also revert the shipment's status from "${from}" back to "${to}" so the action can be redone. This cannot be undone.`;
+    } else if (changedStatus) {
+      message = `This event is no longer reflected in the current status (the shipment has since moved on) — deleting it will only remove it from the history, not change the current status. Continue?`;
+    }
+    if (!confirm(message)) return;
     deleteEventMutation.mutate({ eventId });
   };
 
