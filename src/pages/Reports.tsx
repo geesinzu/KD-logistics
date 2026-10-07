@@ -3,6 +3,7 @@ import { useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
   ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent, type ChartConfig,
 } from "@/components/ui/chart";
@@ -10,7 +11,7 @@ import { BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList } from "recharts"
 import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
 import {
   ArrowLeft, Clock, CheckCircle2, AlertTriangle, Package, Download, Printer,
-  TrendingUp, ChevronDown, ChevronUp, TriangleAlert, Timer, ThumbsUp,
+  TrendingUp, ChevronDown, ChevronUp, ChevronRight, TriangleAlert, Timer, ThumbsUp,
 } from "lucide-react";
 
 const chartConfig = {
@@ -102,13 +103,31 @@ function csvEscape(v: string | number | null): string {
   return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
+function isoDate(d: Date): string {
+  return d.toISOString().slice(0, 10);
+}
+function defaultFrom(): string {
+  const d = new Date();
+  d.setMonth(d.getMonth() - 5);
+  d.setDate(1);
+  return isoDate(d);
+}
+
+const tplTrendConfig = { total: { label: "Shipments", color: "#2a78d6" } } satisfies ChartConfig;
+const branchTrendConfig = { total: { label: "Received", color: "#2a78d6" } } satisfies ChartConfig;
+
 export default function Reports() {
   const navigate = useNavigate();
-  const [months, setMonths] = useState(6);
+  const [from, setFrom] = useState(defaultFrom);
+  const [to, setTo] = useState(() => isoDate(new Date()));
   const [showAllTpl, setShowAllTpl] = useState(false);
   const [showAllBranch, setShowAllBranch] = useState(false);
+  const [selectedTplId, setSelectedTplId] = useState<number | null>(null);
+  const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
-  const { data: analytics, isLoading } = trpc.shipment.analytics.useQuery({ months });
+  const { data: analytics, isLoading } = trpc.shipment.analytics.useQuery({ from, to });
+  const { data: tplTrend } = trpc.shipment.tplTrend.useQuery({ tplId: selectedTplId! }, { enabled: !!selectedTplId });
+  const { data: branchTrend } = trpc.shipment.branchTrend.useQuery({ branchId: selectedBranchId! }, { enabled: !!selectedBranchId });
 
   const insights = useMemo(() => analytics ? buildInsights(analytics.byTpl, analytics.byBranch) : [], [analytics]);
   const summary = useMemo(() => analytics ? buildSummary(analytics.onTimeRate, analytics.byTpl) : "", [analytics]);
@@ -119,7 +138,7 @@ export default function Reports() {
   function exportCsv() {
     if (!analytics) return;
     const rows: string[] = [];
-    rows.push(`KD Logistics Report,Generated ${new Date().toLocaleString("en-NG")},Period: last ${months} month(s)`);
+    rows.push(`KD Logistics Report,Generated ${new Date().toLocaleString("en-NG")},Period: ${from} to ${to}`);
     rows.push("");
     rows.push("KPI,Value");
     rows.push(`Total Shipments,${analytics.totalShipments}`);
@@ -258,17 +277,21 @@ export default function Reports() {
             {/* Monthly trend + narrative */}
             <Card className="border-0 shadow-sm mb-4">
               <CardContent className="p-4">
-                <div className="flex items-center justify-between mb-3">
+                <div className="flex items-center justify-between mb-3 gap-2">
                   <h3 className="text-xs font-semibold text-gray-500 uppercase">Monthly Trend</h3>
-                  <select
-                    value={months}
-                    onChange={e => setMonths(Number(e.target.value))}
-                    className="text-xs bg-gray-50 rounded-md px-2 py-1 outline-none"
-                  >
-                    <option value={3}>3 months</option>
-                    <option value={6}>6 months</option>
-                    <option value={12}>12 months</option>
-                  </select>
+                  <div className="flex items-center gap-1.5">
+                    <input
+                      type="date" value={from} max={to}
+                      onChange={e => setFrom(e.target.value)}
+                      className="text-[11px] bg-gray-50 rounded-md px-1.5 py-1 outline-none w-[112px]"
+                    />
+                    <span className="text-gray-300 text-xs">–</span>
+                    <input
+                      type="date" value={to} min={from} max={isoDate(new Date())}
+                      onChange={e => setTo(e.target.value)}
+                      className="text-[11px] bg-gray-50 rounded-md px-1.5 py-1 outline-none w-[112px]"
+                    />
+                  </div>
                 </div>
                 <ChartContainer config={chartConfig} className="h-56 w-full">
                   <BarChart data={analytics.monthly} margin={{ top: 16, right: 8, left: 8, bottom: 0 }}>
@@ -338,20 +361,24 @@ export default function Reports() {
                 <CardContent className="p-4">
                   <h3 className="text-xs font-semibold text-gray-500 uppercase mb-3">3PL Performance</h3>
                   {(showAllTpl ? analytics.byTpl : topTpl).map(t => (
-                    <div key={t.tplId} className="py-2 border-b border-gray-50 last:border-0">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium text-[#1E293B]">{t.tplName}</p>
-                        <Badge className={`text-[10px] ${onTimeRateColor(t.onTimeRate)}`}>
-                          {t.onTimeRate !== null ? `${t.onTimeRate}% on-time` : "No data"}
-                        </Badge>
+                    <button key={t.tplId} onClick={() => setSelectedTplId(t.tplId)}
+                      className="w-full text-left py-2 border-b border-gray-50 last:border-0 flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between">
+                          <p className="text-sm font-medium text-[#1E293B]">{t.tplName}</p>
+                          <Badge className={`text-[10px] ${onTimeRateColor(t.onTimeRate)}`}>
+                            {t.onTimeRate !== null ? `${t.onTimeRate}% on-time` : "No data"}
+                          </Badge>
+                        </div>
+                        <p className="text-[11px] text-gray-500 mt-0.5">
+                          {t.total} shipments
+                          {t.avgTransitDays !== null && ` · ${t.avgTransitDays}d avg transit`}
+                          {t.reminders > 0 && ` · ${t.reminders} reminder${t.reminders === 1 ? "" : "s"}`}
+                          {t.escalations > 0 && ` · ${t.escalations} escalation${t.escalations === 1 ? "" : "s"}`}
+                        </p>
                       </div>
-                      <p className="text-[11px] text-gray-500 mt-0.5">
-                        {t.total} shipments
-                        {t.avgTransitDays !== null && ` · ${t.avgTransitDays}d avg transit`}
-                        {t.reminders > 0 && ` · ${t.reminders} reminder${t.reminders === 1 ? "" : "s"}`}
-                        {t.escalations > 0 && ` · ${t.escalations} escalation${t.escalations === 1 ? "" : "s"}`}
-                      </p>
-                    </div>
+                      <ChevronRight size={14} className="text-gray-300 flex-shrink-0" />
+                    </button>
                   ))}
                   {analytics.byTpl.length > 3 && (
                     <button onClick={() => setShowAllTpl(v => !v)} className="text-xs text-blue-600 font-medium flex items-center gap-1 mt-2">
@@ -369,22 +396,26 @@ export default function Reports() {
                 <CardContent className="p-4">
                   <h3 className="text-xs font-semibold text-gray-500 uppercase mb-3">Branch Performance</h3>
                   {(showAllBranch ? analytics.byBranch : topBranch).map(b => (
-                    <div key={b.branchId} className="py-2 border-b border-gray-50 last:border-0">
-                      <div className="flex items-center justify-between text-xs mb-1">
-                        <span className="font-medium text-[#1E293B] flex items-center gap-1.5">
-                          {b.branchName}
-                          {b.hubDwellHours !== null && <span className="text-[9px] font-bold text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-1.5 py-0.5">HUB</span>}
-                        </span>
-                        <span className="text-gray-500">{b.total} total · {b.delivered} delivered</span>
+                    <button key={b.branchId} onClick={() => setSelectedBranchId(b.branchId)}
+                      className="w-full text-left py-2 border-b border-gray-50 last:border-0 flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="font-medium text-[#1E293B] flex items-center gap-1.5">
+                            {b.branchName}
+                            {b.hubDwellHours !== null && <span className="text-[9px] font-bold text-teal-700 bg-teal-50 border border-teal-200 rounded-full px-1.5 py-0.5">HUB</span>}
+                          </span>
+                          <span className="text-gray-500">{b.total} total · {b.delivered} delivered</span>
+                        </div>
+                        {(b.hubDwellHours !== null || b.branchFallbacks > 0) && (
+                          <p className="text-[10px] text-gray-400">
+                            {b.hubDwellHours !== null && `${b.hubDwellHours}h avg dwell`}
+                            {b.hubDwellHours !== null && b.branchFallbacks > 0 && " · "}
+                            {b.branchFallbacks > 0 && `${b.branchFallbacks} branch fallback${b.branchFallbacks === 1 ? "" : "s"}`}
+                          </p>
+                        )}
                       </div>
-                      {(b.hubDwellHours !== null || b.branchFallbacks > 0) && (
-                        <p className="text-[10px] text-gray-400">
-                          {b.hubDwellHours !== null && `${b.hubDwellHours}h avg dwell`}
-                          {b.hubDwellHours !== null && b.branchFallbacks > 0 && " · "}
-                          {b.branchFallbacks > 0 && `${b.branchFallbacks} branch fallback${b.branchFallbacks === 1 ? "" : "s"}`}
-                        </p>
-                      )}
-                    </div>
+                      <ChevronRight size={14} className="text-gray-300 flex-shrink-0" />
+                    </button>
                   ))}
                   {analytics.byBranch.length > 3 && (
                     <button onClick={() => setShowAllBranch(v => !v)} className="text-xs text-blue-600 font-medium flex items-center gap-1 mt-2">
@@ -417,7 +448,7 @@ export default function Reports() {
                   <div className="logo-box">K</div>
                   <div className="header-text">
                     <h1>KEDI Healthcare Logistics — Performance Report</h1>
-                    <p>Last {months} month{months === 1 ? "" : "s"} · Generated {new Date().toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}</p>
+                    <p>{from} to {to} · Generated {new Date().toLocaleDateString("en-NG", { day: "numeric", month: "long", year: "numeric" })}</p>
                   </div>
                 </div>
 
@@ -470,6 +501,52 @@ export default function Reports() {
           </>
         )}
       </div>
+
+      {/* 3PL drill-down: trailing 12 months, independent of the main date range */}
+      <Dialog open={!!selectedTplId} onOpenChange={(open) => !open && setSelectedTplId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>{tplTrend?.tplName ?? "Loading..."} — 12 Month Trend</DialogTitle></DialogHeader>
+          {tplTrend ? (
+            <ChartContainer config={tplTrendConfig} className="h-52 w-full">
+              <BarChart data={tplTrend.monthly} margin={{ top: 16, right: 8, left: 8, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke="#e1e0d9" />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                <YAxis hide />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="total" fill="var(--color-total)" radius={4}>
+                  <LabelList dataKey="total" position="top" fontSize={10} fill="#52514e" />
+                </Bar>
+              </BarChart>
+            </ChartContainer>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-8">Loading...</p>
+          )}
+          <p className="text-[11px] text-gray-400 text-center -mt-2">Shipments per month, last 12 months</p>
+        </DialogContent>
+      </Dialog>
+
+      {/* Branch drill-down: trailing 12 months, independent of the main date range */}
+      <Dialog open={!!selectedBranchId} onOpenChange={(open) => !open && setSelectedBranchId(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>{branchTrend?.branchName ?? "Loading..."} — 12 Month Trend</DialogTitle></DialogHeader>
+          {branchTrend ? (
+            <ChartContainer config={branchTrendConfig} className="h-52 w-full">
+              <BarChart data={branchTrend.monthly} margin={{ top: 16, right: 8, left: 8, bottom: 0 }}>
+                <CartesianGrid vertical={false} stroke="#e1e0d9" />
+                <XAxis dataKey="label" tickLine={false} axisLine={false} tickMargin={8} fontSize={11} />
+                <YAxis hide />
+                <ChartTooltip content={<ChartTooltipContent />} />
+                <Bar dataKey="total" fill="var(--color-total)" radius={4}>
+                  <LabelList dataKey="total" position="top" fontSize={10} fill="#52514e" />
+                </Bar>
+              </BarChart>
+            </ChartContainer>
+          ) : (
+            <p className="text-sm text-gray-400 text-center py-8">Loading...</p>
+          )}
+          <p className="text-[11px] text-gray-400 text-center -mt-2">Shipments received per month, last 12 months</p>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
