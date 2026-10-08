@@ -1316,6 +1316,15 @@ export const shipmentRouter = createRouter({
           .set({
             status: event[0].oldStatus as (typeof SHIPMENT_STATUSES)[number],
             ...(milestoneField && milestoneField !== "createdAt" ? { [milestoneField]: null } : {}),
+            // tpl_receipt_confirmed writes its own set of columns alongside
+            // status (tplConfirmedQty/Condition/At/Notes) -- revert those
+            // too, or the shipment ends up contradictory: status back to
+            // "needs receipt" but still carrying the old confirmed qty, so
+            // a stale "Outstanding"/"Receive Remaining" shows up for a
+            // shipment that was never actually confirmed in this telling.
+            ...(event[0].eventType === "tpl_receipt_confirmed"
+              ? { tplConfirmedQty: null, tplCondition: null, tplConfirmedAt: null, tplNotes: null }
+              : {}),
           })
           .where(eq(shipments.id, event[0].shipmentId));
       }
