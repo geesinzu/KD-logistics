@@ -267,6 +267,7 @@ export async function notify3plStatusUpdate(shipmentId: number, tplId: number, t
     tpl_partial_delivery: `reported partial delivery`,
     tpl_full_delivery: `completed delivery`,
     delay_reported: `reported a delay`,
+    tpl_additional_items_received: `received the remaining items`,
   };
   const actionText = updateLabels[updateType] || `updated status`;
   const event: ShipmentPushEvent =

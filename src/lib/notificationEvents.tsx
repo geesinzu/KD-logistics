@@ -1,5 +1,5 @@
 import {
-  Bell, Package, ClipboardList, Tag, Truck, MapPin, CheckCircle2, AlertTriangle, Boxes, Loader2,
+  Bell, Package, ClipboardList, Tag, Truck, MapPin, CheckCircle2, AlertTriangle, Boxes, Loader2, PackageCheck,
 } from "lucide-react";
 import { formatDistanceToNow } from "date-fns";
 
@@ -27,6 +27,7 @@ export const EVENT_ICONS: Record<string, typeof Bell> = {
   onward_dispatched: Truck,
   tpl_update_reminder: Bell,
   tpl_update_overdue: AlertTriangle,
+  tpl_additional_items_received: PackageCheck,
 };
 
 export const EVENT_LABELS: Record<string, string> = {
@@ -53,6 +54,7 @@ export const EVENT_LABELS: Record<string, string> = {
   onward_dispatched: "Dispatched Onward",
   tpl_update_reminder: "Reminder Sent to 3PL",
   tpl_update_overdue: "3PL Update Overdue",
+  tpl_additional_items_received: "Remaining Items Received",
 };
 
 // A handful of legacy tracking_events rows have a corrupted created_at (see

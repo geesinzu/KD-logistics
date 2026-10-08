@@ -21,6 +21,7 @@ const TPL_UPDATE_EVENT_TYPES = [
   "tpl_partial_delivery",
   "tpl_full_delivery",
   "delay_reported",
+  "tpl_additional_items_received",
 ];
 
 function isValidDate(d: unknown): boolean {

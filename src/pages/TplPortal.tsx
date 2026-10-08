@@ -17,11 +17,12 @@ import { EVENT_ICONS, EVENT_LABELS, formatEventTime } from "@/lib/notificationEv
 export default function TplPortal() {
   const [filter, setFilter] = useState("all");
   const [selectedShipment, setSelectedShipment] = useState<any>(null);
-  const [actionType, setActionType] = useState<"confirm" | "update" | "pickup" | null>(null);
+  const [actionType, setActionType] = useState<"confirm" | "update" | "pickup" | "receive_remaining" | null>(null);
   const [updateType, setUpdateType] = useState("");
   const [location, setLocation] = useState("");
   const [deliveredQty, setDeliveredQty] = useState("");
   const [receivedQty, setReceivedQty] = useState("");
+  const [additionalQty, setAdditionalQty] = useState("");
   const [condition, setCondition] = useState("good");
   const [notes, setNotes] = useState("");
   const [newDeliveryDate, setNewDeliveryDate] = useState("");
@@ -59,11 +60,15 @@ export default function TplPortal() {
   const updateDeliveryDateMutation = trpc.shipment.tplUpdateDeliveryDate.useMutation({
     onSuccess: () => { utils.shipment.listForTpl.invalidate(); },
   });
+  const receiveRemainingMutation = trpc.shipment.tplReceiveRemainingItems.useMutation({
+    onSuccess: () => { utils.shipment.listForTpl.invalidate(); closeDialog(); },
+    onError: (err) => alert("Error: " + err.message),
+  });
 
   const closeDialog = () => {
     setSelectedShipment(null);
     setActionType(null);
-    setUpdateType(""); setLocation(""); setDeliveredQty(""); setReceivedQty(""); setCondition("good"); setNotes(""); setNewDeliveryDate("");
+    setUpdateType(""); setLocation(""); setDeliveredQty(""); setReceivedQty(""); setCondition("good"); setNotes(""); setNewDeliveryDate(""); setAdditionalQty("");
   };
 
   const handleConfirm = () => {
@@ -91,6 +96,15 @@ export default function TplPortal() {
       location,
       updateType: updateType as any,
       deliveredQty: deliveredQty ? Number(deliveredQty) : undefined,
+      notes: notes || undefined,
+    });
+  };
+
+  const handleReceiveRemaining = () => {
+    if (!selectedShipment || !additionalQty) return;
+    receiveRemainingMutation.mutate({
+      shipmentId: selectedShipment.id,
+      additionalQty: Number(additionalQty),
       notes: notes || undefined,
     });
   };
@@ -178,6 +192,10 @@ export default function TplPortal() {
             const needsReceipt = ["at_3pl", "picked_up_by_3pl"].includes(s.status);
             const needsPickup = s.status === "waiting_3pl_pickup";
             const actionLabel = getActionLabel(s.status);
+            // Only relevant once a receipt has actually been confirmed --
+            // before that, "missing items" is just the normal Confirm
+            // Receipt flow, not a backlog to top up later.
+            const outstanding = s.tplConfirmedQty != null ? (s.actualItemCount || 0) - s.tplConfirmedQty : 0;
             return (
               <Card key={s.id} className={`border-0 shadow-sm ${needsReceipt ? "ring-1 ring-red-200" : needsPickup ? "ring-1 ring-blue-200" : ""}`}>
                 <CardContent className="p-3">
@@ -187,6 +205,7 @@ export default function TplPortal() {
                     <div className="flex items-center gap-1">
                       {needsReceipt && <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-medium">CONFIRM RECEIPT</span>}
                       {needsPickup && <span className="text-[9px] bg-blue-100 text-blue-700 px-1.5 py-0.5 rounded-full font-medium">PICKUP REQUIRED</span>}
+                      {outstanding > 0 && <span className="text-[9px] bg-amber-100 text-amber-800 px-1.5 py-0.5 rounded-full font-medium">{outstanding} OUTSTANDING</span>}
                       <Badge className={`text-[9px] ${STATUS_COLORS[s.status] || ""}`}>{STATUS_LABELS[s.status] || s.status}</Badge>
                     </div>
                   </div>
@@ -219,6 +238,13 @@ export default function TplPortal() {
                          needsPickup ? <Truck size={12} className="mr-1" /> :
                          <MapPin size={12} className="mr-1" />}
                         {actionLabel}
+                      </Button>
+                    )}
+                    {outstanding > 0 && (
+                      <Button size="sm" className="flex-1 h-8 text-xs bg-amber-600 hover:bg-amber-700"
+                        onClick={() => { setSelectedShipment(s); setActionType("receive_remaining"); }}>
+                        <Package size={12} className="mr-1" />
+                        Receive Remaining ({outstanding})
                       </Button>
                     )}
                     <Button size="sm" variant="outline" className="h-8 text-xs px-2"
@@ -322,6 +348,36 @@ export default function TplPortal() {
           </DialogContent>
         </Dialog>
       )}
+
+      {/* Receive Remaining Items Dialog */}
+      {selectedShipment && actionType === "receive_remaining" && (() => {
+        const outstanding = selectedShipment.tplConfirmedQty != null
+          ? (selectedShipment.actualItemCount || 0) - selectedShipment.tplConfirmedQty
+          : 0;
+        return (
+          <Dialog open={!!selectedShipment} onOpenChange={() => closeDialog()}>
+            <DialogContent className="max-w-sm">
+              <DialogHeader><DialogTitle>Receive Remaining Items: {selectedShipment.trackingId}</DialogTitle></DialogHeader>
+              <div className="space-y-3">
+                <div className="bg-amber-50 p-2 rounded text-xs text-amber-800">
+                  <strong>Originally confirmed:</strong> {selectedShipment.tplConfirmedQty}/{selectedShipment.actualItemCount || 0} items.<br />
+                  <strong>Outstanding:</strong> {outstanding} item{outstanding === 1 ? "" : "s"} not yet received.
+                </div>
+                <div>
+                  <Label>Additional Items Received *</Label>
+                  <Input type="number" min={1} max={outstanding} value={additionalQty} onChange={e => setAdditionalQty(e.target.value)} placeholder="How many arrived now?" />
+                  <p className="text-[10px] text-gray-400 mt-1">Max: {outstanding} (can't exceed the outstanding amount)</p>
+                </div>
+                <div><Label>Notes</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Driver brought it the next day" /></div>
+                <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleReceiveRemaining}
+                  disabled={receiveRemainingMutation.isPending || !additionalQty || Number(additionalQty) > outstanding || Number(additionalQty) < 1}>
+                  {receiveRemainingMutation.isPending ? "Recording..." : "Record Received Items"}
+                </Button>
+              </div>
+            </DialogContent>
+          </Dialog>
+        );
+      })()}
 
       {/* Update Status Dialog */}
       {selectedShipment && actionType === "update" && (

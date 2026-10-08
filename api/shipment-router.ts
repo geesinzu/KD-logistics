@@ -551,6 +551,58 @@ export const shipmentRouter = createRouter({
       return { success: true, totalQty, receivedQty: input.receivedQty };
     }),
 
+  // ── 3PL: RECEIVE REMAINING ITEMS ──
+  // Confirm Receipt above is one-time -- this covers the case where the
+  // 3PL under-confirmed (e.g. 17/18) and the rest physically shows up
+  // later. Only ever tops up tplConfirmedQty towards actualItemCount;
+  // doesn't touch status or the original condition record, since those
+  // describe what happened at the original confirmation.
+  tplReceiveRemainingItems: authedQuery
+    .input(z.object({
+      shipmentId: z.number(),
+      additionalQty: z.number().min(1),
+      notes: z.string().optional(),
+    }))
+    .mutation(async ({ input, ctx }) => {
+      const db = getDb();
+      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+      if (!shipment[0]) throw new Error("Shipment not found");
+
+      if (ctx.tplUser && shipment[0].tplId !== ctx.tplUser.tplId) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to update this shipment" });
+      }
+
+      const totalQty = shipment[0].actualItemCount || 0;
+      const outstanding = totalQty - (shipment[0].tplConfirmedQty || 0);
+      if (outstanding <= 0) throw new Error("No outstanding items for this shipment");
+      if (input.additionalQty > outstanding) throw new Error(`Cannot exceed the outstanding amount (${outstanding})`);
+
+      const newConfirmedQty = (shipment[0].tplConfirmedQty || 0) + input.additionalQty;
+
+      await db.update(shipments)
+        .set({ tplConfirmedQty: newConfirmedQty })
+        .where(eq(shipments.id, input.shipmentId));
+
+      const actorId4 = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
+      const actorRole4 = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
+      await db.insert(trackingEvents).values({
+        shipmentId: input.shipmentId,
+        eventType: "tpl_additional_items_received",
+        oldStatus: shipment[0].status,
+        newStatus: shipment[0].status,
+        notes: `3PL received ${input.additionalQty} additional item(s) previously missing. Now ${newConfirmedQty}/${totalQty} confirmed.${input.notes ? ` ${input.notes}` : ""}`,
+        createdBy: actorId4,
+        actorRole: actorRole4,
+        actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+      });
+
+      if (shipment[0].tplId) {
+        void notify3plStatusUpdate(input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A", "tpl_additional_items_received").catch(() => {});
+      }
+
+      return { success: true, newConfirmedQty, outstanding: outstanding - input.additionalQty };
+    }),
+
   // ── 3PL: UPDATE LOCATION / DELIVERY STATUS (Step 8) ──
   // 3PL can always update status, location, partial delivery
   tplUpdateLocation: authedQuery
@@ -1056,6 +1108,7 @@ export const shipmentRouter = createRouter({
         hubBranchId: shipments.hubBranchId,
         receiverName: shipments.receiverName,
         actualItemCount: shipments.actualItemCount,
+        tplConfirmedQty: shipments.tplConfirmedQty,
         itemDetails: shipments.itemDetails,
         tplId: shipments.tplId,
         tplPickupType: shipments.tplPickupType,
