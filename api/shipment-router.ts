@@ -1132,7 +1132,12 @@ export const shipmentRouter = createRouter({
       // doesn't reflect when they actually happened (see the id-based fix
       // in getTrackingHistory/recentActivity below for the full story) --
       // id is auto-increment and always reflects true insertion order.
-      const rawEvents = await db.select().from(trackingEvents).where(eq(trackingEvents.shipmentId, input.id)).orderBy(trackingEvents.id);
+      // Automatic reminder/escalation rows exist purely for the reminder
+      // scheduler's own bookkeeping (so it doesn't resend every 30 min) --
+      // they're noise in the human-facing timeline, so they stay in the
+      // table but never render here.
+      const rawEvents = (await db.select().from(trackingEvents).where(eq(trackingEvents.shipmentId, input.id)).orderBy(trackingEvents.id))
+        .filter(e => e.eventType !== "tpl_update_reminder" && e.eventType !== "tpl_update_overdue");
       const events = fillEventTimestamps(rawEvents, shipment[0]);
       const creator = await db.select({ name: users.name }).from(users).where(eq(users.id, shipment[0].createdBy)).limit(1);
 
@@ -1451,9 +1456,14 @@ export const shipmentRouter = createRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to view this shipment" });
       }
 
-      let rawEvents = await db.select().from(trackingEvents)
+      // Automatic reminder/escalation rows exist purely for the reminder
+      // scheduler's own bookkeeping (so it doesn't resend every 30 min) --
+      // they're noise in the human-facing timeline, so they stay in the
+      // table but never render here.
+      let rawEvents = (await db.select().from(trackingEvents)
         .where(eq(trackingEvents.shipmentId, input.shipmentId))
-        .orderBy(trackingEvents.id);
+        .orderBy(trackingEvents.id))
+        .filter(e => e.eventType !== "tpl_update_reminder" && e.eventType !== "tpl_update_overdue");
 
       // 3PL only ever sees the shipment's story from the moment it was
       // assigned to their company onward -- what happened at KEDI's

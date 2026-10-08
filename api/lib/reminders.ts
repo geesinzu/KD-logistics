@@ -41,12 +41,29 @@ function currentLagosHour(now: Date): number {
   return parseInt(formatted, 10) % 24;
 }
 
-// 7am-7pm Lagos time. Reminders only SEND inside this window; the underlying
-// "hours since last update" clock keeps running outside it, so anything that
-// went quiet overnight is reminded first thing at 7am rather than forgotten.
+// 7am-7pm Lagos time. Reminders only SEND inside this window.
 export function isWithinOperatingHours(now: Date): boolean {
   const hour = currentLagosHour(now);
   return hour >= 7 && hour < 19;
+}
+
+// The instant 7am Lagos time most recently arrived (today's, once we're past
+// it; otherwise yesterday's). Lagos is fixed UTC+1 year-round (WAT, no DST),
+// so 7am Lagos is always 6am UTC on the same Lagos calendar date -- that date
+// is read via Intl (not assumed from the server's own clock/timezone).
+function mostRecentOperatingWindowStart(now: Date): Date {
+  const lagosDate = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(now);
+  const [year, month, day] = lagosDate.split("-").map(Number);
+  const todayOpen = new Date(Date.UTC(year, month - 1, day, 6, 0, 0));
+  if (currentLagosHour(now) >= 7) return todayOpen;
+  const yesterdayOpen = new Date(todayOpen);
+  yesterdayOpen.setUTCDate(yesterdayOpen.getUTCDate() - 1);
+  return yesterdayOpen;
 }
 
 export interface ReminderDecision {
@@ -108,7 +125,16 @@ export async function checkTplUpdateReminders(now: Date = new Date()): Promise<R
     const startClock: unknown = lastTplEvent?.createdAt ?? shipment.assignedAt ?? shipment.createdAt;
     if (!isValidDate(startClock)) continue; // can't tell -- never guess a clock start
 
-    const hoursSinceLastUpdate = (now.getTime() - new Date(startClock as unknown as string).getTime()) / 3_600_000;
+    // The clock never counts idle-hour time: a shipment that's been quiet
+    // since before today's 7am open is treated as having gone quiet AT 7am,
+    // not however many hours earlier it actually was -- the overnight gap
+    // the 3PL isn't on the hook for never gets counted toward the 6h/12h
+    // thresholds below.
+    const rawStart = new Date(startClock as unknown as string);
+    const windowStart = mostRecentOperatingWindowStart(now);
+    const effectiveStart = rawStart.getTime() > windowStart.getTime() ? rawStart : windowStart;
+
+    const hoursSinceLastUpdate = (now.getTime() - effectiveStart.getTime()) / 3_600_000;
 
     // A reminder/escalation only counts if it happened AFTER the last real
     // update -- one from a previous stale period is irrelevant now.
