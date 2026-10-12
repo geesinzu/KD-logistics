@@ -114,8 +114,11 @@ export const RECEIVABLE_BY_BRANCH_STATUSES = [
 ] as const;
 
 // Shipments that are "moving" — assigned and out of the warehouse, but not
-// yet delivered. Shared between attentionStats, flagOverdue, and stats
-// so the definition of "in transit" only lives in one place.
+// yet delivered. Includes the hub-route statuses (at_hub, onward_in_transit):
+// a shipment waiting at or dispatched from a hub is still moving, just on
+// the onward leg instead of the 3PL leg, not the dashboard "limbo" it was in
+// before. Shared between attentionStats, flagOverdue, and stats so the
+// definition of "in transit" only lives in one place.
 export const IN_TRANSIT_STATUSES = [
   "in_transit_with_3pl",
   "picked_up",
@@ -124,6 +127,8 @@ export const IN_TRANSIT_STATUSES = [
   "picked_up_by_3pl",
   "waiting_3pl_pickup",
   "waiting_driver_pickup",
+  "at_hub",
+  "onward_in_transit",
 ] as const;
 
 export const STATUS_COLORS: Record<string, string> = {
