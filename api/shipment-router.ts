@@ -129,6 +129,32 @@ function fillEventTimestamps<T extends { createdAt: unknown; eventType: string }
   }));
 }
 
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
+
+// estimatedDeliveryDate is a plain DATE column (no time-of-day), while
+// deliveredAt/completedAt/"now" are full timestamps in Nigeria's actual
+// operating timezone. Comparing those two kinds of value directly (raw ms
+// diff) made a same-day delivery at e.g. 2pm look "late" against a
+// midnight ETA, and inflated every genuinely-late delivery by an extra
+// day -- the leftover hours-into-the-day on the finish side got rounded
+// up into a whole extra day. Reducing both sides to a Lagos calendar date
+// first means only whole days apart ever count.
+function lagosCalendarDateMs(d: Date): number {
+  const formatted = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Africa/Lagos",
+    year: "numeric", month: "2-digit", day: "2-digit",
+  }).format(d);
+  const [year, month, day] = formatted.split("-").map(Number);
+  return Date.UTC(year, month - 1, day);
+}
+
+// A DATE column has no time-of-day or timezone to begin with -- read its
+// year/month/day straight off the UTC-midnight Date the driver returns it
+// as, rather than re-interpreting it through another timezone conversion.
+function dateOnlyMs(d: Date): number {
+  return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
+}
+
 // Compares actual delivery/completion time against the ETA set at 3PL
 // assignment -- the same comparison `analytics` already aggregates into
 // the Reports page's on-time rate, surfaced per shipment instead. Only
@@ -150,11 +176,11 @@ function computeDeliveryOutcome(
   const finishedAt = deliveredAt ?? completedAt;
   if (!isValidEventDate(finishedAt)) return { deliveryOutcome: "no_eta", daysLate: null };
 
-  const finishedMs = new Date(finishedAt as string).getTime();
-  const etaMs = new Date(estimatedDeliveryDate as string).getTime();
-  if (finishedMs <= etaMs) return { deliveryOutcome: "on_time", daysLate: 0 };
+  const finishedDateMs = lagosCalendarDateMs(new Date(finishedAt as string));
+  const etaDateMs = dateOnlyMs(new Date(estimatedDeliveryDate as string));
+  if (finishedDateMs <= etaDateMs) return { deliveryOutcome: "on_time", daysLate: 0 };
 
-  const daysLate = Math.ceil((finishedMs - etaMs) / (24 * 60 * 60 * 1000));
+  const daysLate = Math.round((finishedDateMs - etaDateMs) / ONE_DAY_MS);
   return { deliveryOutcome: "late", daysLate };
 }
 
@@ -1037,16 +1063,16 @@ export const shipmentRouter = createRouter({
         : [];
 
       const now = new Date();
-      const oneDayMs = 24 * 60 * 60 * 1000;
+      const todayMs = lagosCalendarDateMs(now);
       const enriched = results.map(s => {
         const eta = s.estimatedDeliveryDate ? new Date(s.estimatedDeliveryDate) : null;
         // The ETA is the 3PL's deadline, so it stops mattering once their leg is done.
         const isDone = s.status === "cancelled" || TPL_DONE_STATUSES.includes(s.status as (typeof TPL_DONE_STATUSES)[number]);
+        const daysUntil = eta && !isDone ? Math.round((dateOnlyMs(eta) - todayMs) / ONE_DAY_MS) : null;
         let slaStatus: "no_eta" | "on_track" | "due_soon" | "overdue" = "no_eta";
-        if (eta && !isDone) {
-          const diffMs = eta.getTime() - now.getTime();
-          if (diffMs < 0) slaStatus = "overdue";
-          else if (diffMs < oneDayMs) slaStatus = "due_soon";
+        if (daysUntil !== null) {
+          if (daysUntil < 0) slaStatus = "overdue";
+          else if (daysUntil === 0) slaStatus = "due_soon";
           else slaStatus = "on_track";
         }
         return {
@@ -1055,7 +1081,7 @@ export const shipmentRouter = createRouter({
           hubBranchName: s.hubBranchId ? (branchList.find(b => b.id === s.hubBranchId)?.name || null) : null,
           tplName: tplList.find(t => t.id === s.tplId)?.name || null,
           slaStatus,
-          daysUntilEta: eta && !isDone ? Math.ceil((eta.getTime() - now.getTime()) / oneDayMs) : null,
+          daysUntilEta: daysUntil,
           ...computeDeliveryOutcome(s.status, s.estimatedDeliveryDate, s.deliveredAt, s.completedAt),
         };
       });
@@ -1132,15 +1158,15 @@ export const shipmentRouter = createRouter({
         : [];
 
       const now = new Date();
-      const oneDayMs = 24 * 60 * 60 * 1000;
+      const todayMs = lagosCalendarDateMs(now);
       const enriched = results.map(s => {
         const eta = s.estimatedDeliveryDate ? new Date(s.estimatedDeliveryDate) : null;
         const isDone = s.status === "cancelled" || TPL_DONE_STATUSES.includes(s.status as (typeof TPL_DONE_STATUSES)[number]);
+        const daysUntil = eta && !isDone ? Math.round((dateOnlyMs(eta) - todayMs) / ONE_DAY_MS) : null;
         let slaStatus: "no_eta" | "on_track" | "due_soon" | "overdue" = "no_eta";
-        if (eta && !isDone) {
-          const diffMs = eta.getTime() - now.getTime();
-          if (diffMs < 0) slaStatus = "overdue";
-          else if (diffMs < oneDayMs) slaStatus = "due_soon";
+        if (daysUntil !== null) {
+          if (daysUntil < 0) slaStatus = "overdue";
+          else if (daysUntil === 0) slaStatus = "due_soon";
           else slaStatus = "on_track";
         }
         // What the 3PL sees is THEIR job: deliver to the hub on a hub route
@@ -1152,7 +1178,7 @@ export const shipmentRouter = createRouter({
           status: (ONWARD_STATUSES as readonly string[]).includes(s.status) ? "delivered" : s.status,
           destinationBranch: branchList.find(b => b.id === deliverToBranchId)?.name || "Unknown",
           slaStatus,
-          daysUntilEta: eta && !isDone ? Math.ceil((eta.getTime() - now.getTime()) / oneDayMs) : null,
+          daysUntilEta: daysUntil,
         };
       });
 
@@ -1363,8 +1389,7 @@ export const shipmentRouter = createRouter({
   // ── ATTENTION STATS (overdue / due soon / awaiting acknowledgement) ──
   attentionStats: authedQuery.query(async ({ ctx }) => {
     const db = getDb();
-    const now = new Date();
-    const oneDayMs = 24 * 60 * 60 * 1000;
+    const todayMs = lagosCalendarDateMs(new Date());
 
     let query = db.select().from(shipments).where(and(
       inArray(shipments.status, IN_TRANSIT_STATUSES as any),
@@ -1385,10 +1410,9 @@ export const shipmentRouter = createRouter({
     let dueSoon = 0;
     let onTrack = 0;
     for (const s of results) {
-      const eta = new Date(s.estimatedDeliveryDate!);
-      const diffMs = eta.getTime() - now.getTime();
-      if (diffMs < 0) overdue++;
-      else if (diffMs < oneDayMs) dueSoon++;
+      const daysUntil = Math.round((dateOnlyMs(new Date(s.estimatedDeliveryDate!)) - todayMs) / ONE_DAY_MS);
+      if (daysUntil < 0) overdue++;
+      else if (daysUntil === 0) dueSoon++;
       else onTrack++;
     }
 
@@ -1417,15 +1441,14 @@ export const shipmentRouter = createRouter({
     .input(z.object({ shipmentId: z.number(), notes: z.string().optional() }).optional())
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      const now = new Date();
-      const oneDayMs = 24 * 60 * 60 * 1000;
+      const todayMs = lagosCalendarDateMs(new Date());
 
       // If specific shipmentId provided, check just that one
       if (input?.shipmentId) {
         const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
         if (!shipment[0] || !shipment[0].estimatedDeliveryDate) return { flagged: 0 };
         const eta = new Date(shipment[0].estimatedDeliveryDate);
-        if (eta.getTime() - now.getTime() < 0 && (IN_TRANSIT_STATUSES as readonly string[]).includes(shipment[0].status)) {
+        if (dateOnlyMs(eta) < todayMs && (IN_TRANSIT_STATUSES as readonly string[]).includes(shipment[0].status)) {
           await db.insert(trackingEvents).values({
             shipmentId: input.shipmentId,
             eventType: "delay_reported",
@@ -1449,7 +1472,7 @@ export const shipmentRouter = createRouter({
       let flagged = 0;
       for (const s of results) {
         const eta = new Date(s.estimatedDeliveryDate!);
-        if (eta.getTime() - now.getTime() < 0) {
+        if (dateOnlyMs(eta) < todayMs) {
           await db.insert(trackingEvents).values({
             shipmentId: s.id,
             eventType: "delay_reported",
