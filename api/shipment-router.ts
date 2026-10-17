@@ -1686,6 +1686,37 @@ export const shipmentRouter = createRouter({
         }
       }
 
+      // Detailed issue log per 3PL for the PDF report -- separate from the
+      // counts above, which never retain the event's own notes/shipment.
+      // delay_reported isn't part of signalEvents (it's not counted toward
+      // any KPI), but it's still a real "something went wrong" moment worth
+      // surfacing here. Capped to the 5 most recent per 3PL via the id-desc
+      // order, so a chronically-escalating 3PL doesn't fill the page.
+      const trackingIdByShipment = new Map<number, string>();
+      for (const s of allShipments) {
+        if (s.trackingId) trackingIdByShipment.set(s.id, s.trackingId);
+      }
+      const issueEvents = await db.select({ shipmentId: trackingEvents.shipmentId, eventType: trackingEvents.eventType, notes: trackingEvents.notes, createdAt: trackingEvents.createdAt })
+        .from(trackingEvents)
+        .where(inArray(trackingEvents.eventType, ["delay_reported", "tpl_update_overdue", "branch_marked_delivered"]))
+        .orderBy(desc(trackingEvents.id));
+      const issuesByTpl = new Map<number, { trackingId: string; eventType: string; notes: string | null; createdAt: unknown }[]>();
+      for (const e of issueEvents) {
+        if (!inWindow(e.createdAt)) continue;
+        const tplId = tplIdByShipment.get(e.shipmentId);
+        if (!tplId) continue;
+        const list = issuesByTpl.get(tplId) ?? [];
+        if (list.length < 5) {
+          list.push({
+            trackingId: trackingIdByShipment.get(e.shipmentId) ?? `#${e.shipmentId}`,
+            eventType: e.eventType,
+            notes: e.notes,
+            createdAt: e.createdAt,
+          });
+        }
+        issuesByTpl.set(tplId, list);
+      }
+
       // Hub dwell: time between arrival at the hub and onward dispatch,
       // only meaningful for branches that are actually configured as a hub.
       const hubDwellByBranch = new Map<number, { totalHours: number; count: number }>();
@@ -1734,6 +1765,20 @@ export const shipmentRouter = createRouter({
               if (hours >= 0) { transitTotal += hours; transitCount++; }
             }
           }
+
+          // Routes handled: which destinations (or hub, on a hub route) this
+          // 3PL actually shipped to this period, and how often -- pure
+          // in-memory grouping of data already fetched, no new query.
+          const routeCounts = new Map<string, number>();
+          for (const s of items) {
+            const destId = s.hubBranchId ?? s.destBranchId;
+            const destName = branchList.find(b => b.id === destId)?.name ?? "Unknown";
+            routeCounts.set(destName, (routeCounts.get(destName) ?? 0) + 1);
+          }
+          const routes = [...routeCounts.entries()]
+            .map(([branchName, count]) => ({ branchName, count }))
+            .sort((a, b) => b.count - a.count);
+
           return {
             tplId: t.id,
             tplName: t.name,
@@ -1743,6 +1788,8 @@ export const shipmentRouter = createRouter({
             reminders: remindersByTpl.get(t.id) ?? 0,
             escalations: escalationsByTpl.get(t.id) ?? 0,
             branchFallbacks: fallbacksByTpl.get(t.id) ?? 0,
+            routes,
+            issues: issuesByTpl.get(t.id) ?? [],
           };
         })
         .filter(t => t.total > 0 || t.reminders > 0 || t.escalations > 0)
