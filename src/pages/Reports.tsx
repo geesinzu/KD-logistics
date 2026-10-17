@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -120,6 +120,35 @@ export default function Reports() {
   const navigate = useNavigate();
   const [from, setFrom] = useState(defaultFrom);
   const [to, setTo] = useState(() => isoDate(new Date()));
+  // Some mobile browsers' native date picker fires onChange on every single
+  // arrow-tap while stepping through months/days (not just on a completed
+  // pick), so committing straight to `from`/`to` refetched analytics after
+  // every tap -- interrupting navigation partway through a multi-step move
+  // (e.g. May -> September). Debounced so rapid taps only commit once the
+  // user actually pauses; onBlur commits immediately so leaving the field
+  // never has to wait out the debounce.
+  const fromCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const toCommitTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const commitFrom = (value: string) => {
+    if (fromCommitTimer.current) clearTimeout(fromCommitTimer.current);
+    fromCommitTimer.current = setTimeout(() => setFrom(value), 600);
+  };
+  const commitTo = (value: string) => {
+    if (toCommitTimer.current) clearTimeout(toCommitTimer.current);
+    toCommitTimer.current = setTimeout(() => setTo(value), 600);
+  };
+  const commitFromNow = (value: string) => {
+    if (fromCommitTimer.current) clearTimeout(fromCommitTimer.current);
+    setFrom(value);
+  };
+  const commitToNow = (value: string) => {
+    if (toCommitTimer.current) clearTimeout(toCommitTimer.current);
+    setTo(value);
+  };
+  useEffect(() => () => {
+    if (fromCommitTimer.current) clearTimeout(fromCommitTimer.current);
+    if (toCommitTimer.current) clearTimeout(toCommitTimer.current);
+  }, []);
   const [showAllTpl, setShowAllTpl] = useState(false);
   const [showAllBranch, setShowAllBranch] = useState(false);
   const [selectedTplId, setSelectedTplId] = useState<number | null>(null);
@@ -281,14 +310,16 @@ export default function Reports() {
                   <h3 className="text-xs font-semibold text-gray-500 uppercase">Monthly Trend</h3>
                   <div className="flex items-center gap-1.5">
                     <input
-                      type="date" value={from} max={to}
-                      onChange={e => setFrom(e.target.value)}
+                      type="date" defaultValue={from} max={to}
+                      onChange={e => commitFrom(e.target.value)}
+                      onBlur={e => commitFromNow(e.target.value)}
                       className="text-[11px] bg-gray-50 rounded-md px-1.5 py-1 outline-none w-[112px]"
                     />
                     <span className="text-gray-300 text-xs">–</span>
                     <input
-                      type="date" value={to} min={from} max={isoDate(new Date())}
-                      onChange={e => setTo(e.target.value)}
+                      type="date" defaultValue={to} min={from} max={isoDate(new Date())}
+                      onChange={e => commitTo(e.target.value)}
+                      onBlur={e => commitToNow(e.target.value)}
                       className="text-[11px] bg-gray-50 rounded-md px-1.5 py-1 outline-none w-[112px]"
                     />
                   </div>
