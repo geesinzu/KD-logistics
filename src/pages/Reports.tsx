@@ -21,6 +21,55 @@ const chartConfig = {
 
 const PRIORITY_LABELS: Record<string, string> = { urgent: "Urgent", normal: "Normal", low: "Low" };
 
+const ISSUE_EVENT_LABELS: Record<string, string> = {
+  delay_reported: "Delay",
+  tpl_update_overdue: "Escalation",
+  branch_marked_delivered: "Branch Fallback",
+};
+
+// Plain-English meaning of every metric/term used in the printed report --
+// a reader who isn't familiar with the app's internal language shouldn't
+// need to ask what "Hub Dwell" or "Branch Fallback" means.
+const GLOSSARY: { term: string; def: string }[] = [
+  { term: "Total Shipments", def: "Shipments created within the selected date range." },
+  { term: "On-Time Rate", def: "Percentage of finished shipments delivered on or before their estimated delivery date." },
+  { term: "Avg 3PL Transit", def: "Average time from when the 3PL actually took custody of a shipment to when it was delivered." },
+  { term: "Avg KEDI Processing", def: "Average time from when a shipment was created to when it was handed off to the 3PL -- KEDI's own share of the timeline, kept separate from the 3PL's." },
+  { term: "Late", def: "Finished shipments delivered after their estimated delivery date." },
+  { term: "Reminders", def: "Automatic nudges sent to a 3PL after 6+ hours with no status update during business hours." },
+  { term: "Escalations", def: "Automatic alerts sent to KEDI's ops team after 12+ hours of continued silence from a 3PL." },
+  { term: "Branch Fallbacks", def: "Times a receiving branch had to record a delivery itself because the 3PL never posted an update -- a sign the 3PL's own reporting broke down, even if the delivery itself was fine." },
+  { term: "Hub Dwell", def: "Average time a shipment sat at a hub branch between arriving and being dispatched onward to its final destination (hub routes only)." },
+  { term: "Routes Handled", def: "The destination branches (or hub) a 3PL delivered to in this period, with how many shipments went to each." },
+  { term: "Priority (Urgent / Normal / Low)", def: "The urgency tag set on a shipment when it was created, used for internal prioritization." },
+];
+
+// Hand-drawn SVG bar chart for the print window -- that's a separate
+// document.write'd window with no React/Recharts mounted, so the on-screen
+// <BarChart> can't be reused there; this renders the same `monthly` data
+// (created/delivered per month) as plain SVG instead.
+function MonthlyChartSvg({ monthly }: { monthly: { label: string; created: number; delivered: number }[] }) {
+  const width = 682, chartH = 140;
+  const groupW = width / Math.max(monthly.length, 1);
+  const maxVal = Math.max(1, ...monthly.flatMap(m => [m.created, m.delivered]));
+  return (
+    <svg width={width} height={chartH + 30} viewBox={`0 0 ${width} ${chartH + 30}`}>
+      {monthly.map((m, i) => {
+        const createdH = Math.round((m.created / maxVal) * chartH);
+        const deliveredH = Math.round((m.delivered / maxVal) * chartH);
+        const x = Math.round(i * groupW + 10);
+        return (
+          <g key={m.label + i}>
+            <rect x={x} y={chartH - createdH} width={38} height={createdH} fill="#2a78d6" />
+            <rect x={x + 42} y={chartH - deliveredH} width={38} height={deliveredH} fill="#008300" />
+            <text x={x + 40} y={chartH + 16} fontSize="10" textAnchor="middle" fill="#64748B">{m.label}</text>
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
+
 function onTimeRateColor(rate: number | null) {
   if (rate === null) return "bg-gray-100 text-gray-500";
   if (rate >= 90) return "bg-green-50 text-green-700";
@@ -28,9 +77,12 @@ function onTimeRateColor(rate: number | null) {
   return "bg-red-50 text-red-700";
 }
 
+interface TplIssue { trackingId: string; eventType: string; notes: string | null }
+interface TplRoute { branchName: string; count: number }
 interface TplRow {
   tplId: number; tplName: string; total: number; onTimeRate: number | null;
   avgTransitDays: number | null; reminders: number; escalations: number; branchFallbacks: number;
+  routes: TplRoute[]; issues: TplIssue[];
 }
 interface BranchRow {
   branchId: number; branchName: string; total: number; delivered: number; active: number;
@@ -214,15 +266,49 @@ export default function Reports() {
           .header-text h1 { font-size: 18px; font-weight: 800; margin: 0; }
           .header-text p { font-size: 11px; color: #64748B; margin: 2px 0 0; }
           .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-bottom: 16px; }
-          .kpi-box { border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 12px; }
+          .kpi-box { border: 1px solid #E2E8F0; border-radius: 8px; padding: 10px 12px; page-break-inside: avoid; }
           .kpi-label { font-size: 9px; text-transform: uppercase; color: #94A3B8; font-weight: 700; }
           .kpi-value { font-size: 20px; font-weight: 800; margin-top: 4px; }
-          h2 { font-size: 13px; font-weight: 800; margin: 18px 0 8px; }
+          h2 { font-size: 13px; font-weight: 800; margin: 18px 0 8px; page-break-after: avoid; }
+          h3 { font-size: 12px; font-weight: 800; margin: 0 0 2px; }
+          h4 { font-size: 11px; font-weight: 700; margin: 10px 0 4px; color: #475569; page-break-after: avoid; }
           table { width: 100%; border-collapse: collapse; font-size: 11px; }
           th { text-align: left; font-size: 9px; text-transform: uppercase; color: #94A3B8; padding: 6px 8px; border-bottom: 1px solid #CBD5E1; }
           td { padding: 7px 8px; border-bottom: 1px solid #F1F5F9; }
           .summary { font-size: 11px; color: #334155; line-height: 1.6; background: #F8FAFC; border-radius: 8px; padding: 12px; margin-bottom: 4px; }
           .footer { margin-top: 20px; padding-top: 10px; border-top: 1px solid #E2E8F0; text-align: center; font-size: 9px; color: #94A3B8; }
+          .insights { display: flex; flex-direction: column; gap: 8px; margin-bottom: 4px; }
+          .insight-card { border-left: 4px solid #94A3B8; background: #FAFAFA; border-radius: 6px; padding: 10px 12px; page-break-inside: avoid; }
+          .insight-card.tone-bad { border-left-color: #EF4444; }
+          .insight-card.tone-warn { border-left-color: #F59E0B; }
+          .insight-card.tone-good { border-left-color: #22C55E; }
+          .insight-title { font-size: 12px; font-weight: 700; margin: 0; }
+          .insight-body { font-size: 11px; color: #64748B; margin: 2px 0 0; }
+          .chart-box { border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; margin-bottom: 8px; page-break-inside: avoid; }
+          .chart-legend { display: flex; gap: 14px; align-items: center; margin-bottom: 8px; font-size: 10px; color: #64748B; }
+          .chart-legend span { display: inline-flex; align-items: center; gap: 4px; }
+          .swatch { width: 9px; height: 9px; display: inline-block; border-radius: 2px; }
+          .time-split { display: flex; gap: 12px; margin-bottom: 4px; page-break-inside: avoid; }
+          .time-box { flex: 1; border-radius: 8px; padding: 12px; }
+          .time-box-kedi { background: #F8FAFC; }
+          .time-box-tpl { background: #EFF6FF; }
+          .time-label { font-size: 9px; text-transform: uppercase; font-weight: 700; margin: 0; color: #64748B; }
+          .time-box-tpl .time-label { color: #2563EB; }
+          .time-value { font-size: 18px; font-weight: 800; margin: 4px 0 0; }
+          .time-sub { font-size: 9px; color: #94A3B8; margin: 2px 0 0; }
+          .tpl-detail-card { border: 1px solid #E2E8F0; border-radius: 8px; padding: 14px; margin-bottom: 14px; page-break-inside: avoid; }
+          .tpl-detail-sub { font-size: 10px; color: #64748B; margin: 0 0 4px; }
+          .route-tags { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 4px; }
+          .route-tag { font-size: 10px; background: #F1F5F9; color: #334155; padding: 3px 8px; border-radius: 999px; }
+          .issue-list { margin: 0; padding-left: 16px; }
+          .issue-list li { font-size: 10.5px; color: #475569; margin-bottom: 3px; }
+          .no-issues { font-size: 10.5px; color: #94A3B8; margin: 0; }
+          .glossary-page-break { page-break-before: always; }
+          .glossary-intro { font-size: 10px; color: #94A3B8; margin: 0 0 4px; }
+          .glossary { margin: 0; }
+          .glossary-entry { page-break-inside: avoid; }
+          .glossary-entry dt { font-size: 11px; font-weight: 700; margin-top: 8px; }
+          .glossary-entry dd { font-size: 11px; color: #475569; margin: 2px 0 0; line-height: 1.5; }
         </style>
       </head>
       <body>
@@ -490,9 +576,45 @@ export default function Reports() {
                   <div className="kpi-box"><div className="kpi-label">Late</div><div className="kpi-value">{analytics.late}</div></div>
                 </div>
 
+                {insights.length > 0 && (
+                  <>
+                    <h2>Needs Your Attention</h2>
+                    <div className="insights">
+                      {insights.map((ins, i) => (
+                        <div key={i} className={`insight-card tone-${ins.tone}`}>
+                          <p className="insight-title">{ins.title}</p>
+                          <p className="insight-body">{ins.body}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </>
+                )}
+
+                <h2>Monthly Trend</h2>
+                <div className="chart-box">
+                  <div className="chart-legend">
+                    <span><span className="swatch" style={{ background: "#2a78d6" }} />Created</span>
+                    <span><span className="swatch" style={{ background: "#008300" }} />Delivered</span>
+                  </div>
+                  <MonthlyChartSvg monthly={analytics.monthly} />
+                </div>
                 <p className="summary">{summary}</p>
 
-                <h2>3PL Performance</h2>
+                <h2>Where Time Goes</h2>
+                <div className="time-split">
+                  <div className="time-box time-box-kedi">
+                    <p className="time-label">KEDI Processing</p>
+                    <p className="time-value">{analytics.avgKediProcessingDays !== null ? `${analytics.avgKediProcessingDays}d` : "—"}</p>
+                    <p className="time-sub">created &rarr; handed to 3PL</p>
+                  </div>
+                  <div className="time-box time-box-tpl">
+                    <p className="time-label">3PL Transit</p>
+                    <p className="time-value">{analytics.avgTplTransitDays !== null ? `${analytics.avgTplTransitDays}d` : "—"}</p>
+                    <p className="time-sub">handed off &rarr; delivered</p>
+                  </div>
+                </div>
+
+                <h2>3PL Performance — Summary</h2>
                 <table>
                   <thead><tr><th>3PL</th><th>Shipments</th><th>On-Time</th><th>Avg Transit</th><th>Reminders</th><th>Escalations</th><th>Fallbacks</th></tr></thead>
                   <tbody>
@@ -510,6 +632,34 @@ export default function Reports() {
                   </tbody>
                 </table>
 
+                <h2>3PL Performance — Detail</h2>
+                {analytics.byTpl.map(t => (
+                  <div key={t.tplId} className="tpl-detail-card">
+                    <h3>{t.tplName}</h3>
+                    <p className="tpl-detail-sub">
+                      {t.total} shipments &middot; {t.onTimeRate !== null ? `${t.onTimeRate}%` : "—"} on-time &middot; {t.avgTransitDays !== null ? `${t.avgTransitDays}d` : "—"} avg transit
+                    </p>
+
+                    <h4>Routes Handled</h4>
+                    {t.routes.length > 0 ? (
+                      <div className="route-tags">
+                        {t.routes.map(r => <span key={r.branchName} className="route-tag">{r.branchName} &middot; {r.count}</span>)}
+                      </div>
+                    ) : <p className="no-issues">No shipments routed this period.</p>}
+
+                    <h4>Issues This Period</h4>
+                    {t.issues.length > 0 ? (
+                      <ul className="issue-list">
+                        {t.issues.map((iss, i) => (
+                          <li key={i}>
+                            <strong>{iss.trackingId}</strong> — {ISSUE_EVENT_LABELS[iss.eventType] || iss.eventType}: {iss.notes || "No details recorded."}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : <p className="no-issues">No flagged issues this period.</p>}
+                  </div>
+                ))}
+
                 <h2>Branch Performance</h2>
                 <table>
                   <thead><tr><th>Branch</th><th>Received</th><th>Completed</th><th>Fallbacks</th><th>Hub Dwell (avg)</th></tr></thead>
@@ -525,6 +675,18 @@ export default function Reports() {
                     ))}
                   </tbody>
                 </table>
+
+                <div className="glossary-page-break" />
+                <h2>Glossary</h2>
+                <p className="glossary-intro">Plain-English meaning of every metric used in this report.</p>
+                <dl className="glossary">
+                  {GLOSSARY.map(g => (
+                    <div key={g.term} className="glossary-entry">
+                      <dt>{g.term}</dt>
+                      <dd>{g.def}</dd>
+                    </div>
+                  ))}
+                </dl>
 
                 <div className="footer">KEDI Healthcare Logistics &bull; Internal performance report &bull; Not for external distribution without review</div>
               </div>
