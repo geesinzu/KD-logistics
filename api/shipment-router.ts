@@ -10,6 +10,7 @@ import {
   notify3plStatusUpdate, notifyShipmentDelivered, notifyShipmentCompleted,
   notifyDriverPickedUp, notifyDriverDroppedAtTpl, notifyDeliveryDateChanged, notifyShipmentCancelled,
   notifyDeliveredToHub, notifyHubAcknowledged, notifyOnwardDispatched, notifyBranchMarkedDelivered,
+  notifyBranchReportedIssue,
 } from "./lib/push";
 import {
   receivingBranchId, statusAfterTplFullDelivery, hubAcknowledgeGuard, dispatchOnwardGuard,
@@ -46,6 +47,18 @@ async function getTplName(db: any, tplId: number): Promise<string> {
 async function getDriverName(db: any, driverId: number): Promise<string> {
   const driver = await db.select({ name: users.name }).from(users).where(eq(users.id, driverId)).limit(1);
   return driver[0]?.name || `Driver #${driverId}`;
+}
+
+// Same validation uploadProfilePicture (api/user-router.ts) applies to a
+// single image, run over a branch's damage-documentation photos -- a
+// tighter per-photo cap than the profile picture's 3MB since there can be
+// up to 5 of these on one event.
+function validatePhotos(photos: string[] | undefined): void {
+  if (!photos) return;
+  for (const photo of photos) {
+    if (!photo.startsWith("data:image/")) throw new Error("Invalid photo format. Must be a valid image.");
+    if (photo.length > 2 * 1024 * 1024) throw new Error("Photo too large. Max ~1.5MB each.");
+  }
 }
 
 function isValidEventDate(d: unknown): boolean {
@@ -782,7 +795,12 @@ export const shipmentRouter = createRouter({
   // branch can still close it out from "at_hub" and the log says the step
   // was skipped. Who may do this is unchanged from before.
   acknowledgeDelivery: branchManagerQuery
-    .input(z.object({ shipmentId: z.number() }))
+    .input(z.object({
+      shipmentId: z.number(),
+      receivedQty: z.number().int().min(0),
+      photos: z.array(z.string()).max(5).optional(),
+      notes: z.string().optional(),
+    }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
@@ -792,6 +810,11 @@ export const shipmentRouter = createRouter({
       if (ctx.user.role === "branch_manager" && shipment[0].destBranchId !== ctx.user.branchId) {
         throw new Error("You can only acknowledge deliveries to your own branch");
       }
+      validatePhotos(input.photos);
+
+      const expectedQty = shipment[0].actualItemCount ?? shipment[0].estimatedItemCount ?? null;
+      const shortBy = expectedQty !== null && input.receivedQty < expectedQty ? expectedQty - input.receivedQty : null;
+      const hasPhotos = !!(input.photos && input.photos.length > 0);
 
       await db.update(shipments).set({ status: "completed", completedAt: new Date() }).where(eq(shipments.id, input.shipmentId));
       await db.insert(trackingEvents).values({
@@ -799,22 +822,39 @@ export const shipmentRouter = createRouter({
         eventType: "delivery_acknowledged",
         oldStatus: shipment[0].status,
         newStatus: "completed",
-        notes: guard.skippedOnward
-          ? `Delivery acknowledged by ${ctx.user.name}. The hub did not record the onward dispatch.`
-          : `Delivery acknowledged by ${ctx.user.name}.`,
+        qtyDelivered: input.receivedQty,
+        photos: input.photos ?? null,
+        notes: [
+          guard.skippedOnward
+            ? `Delivery acknowledged by ${ctx.user.name}. The hub did not record the onward dispatch.`
+            : `Delivery acknowledged by ${ctx.user.name}.`,
+          expectedQty !== null ? `Confirmed ${input.receivedQty}/${expectedQty} items received.` : `Confirmed ${input.receivedQty} items received.`,
+          shortBy ? `${shortBy} short of expected.` : "",
+          hasPhotos ? "Damage photos attached." : "",
+          input.notes || "",
+        ].filter(Boolean).join(" "),
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
 
       void notifyShipmentCompleted(input.shipmentId, shipment[0].destBranchId, shipment[0].trackingId || "N/A").catch(() => {});
-      return { success: true };
+      if (shortBy || hasPhotos) {
+        const branch = await db.select().from(branches).where(eq(branches.id, shipment[0].destBranchId)).limit(1);
+        void notifyBranchReportedIssue(input.shipmentId, branch[0]?.name || "Branch", { shortBy, hasPhotos }, ctx.user.id).catch(() => {});
+      }
+      return { success: true, shortBy, hasPhotos };
     }),
 
   // ── HUB: ACKNOWLEDGE RECEIPT AT THE HUB (acknowledgement #1) ──
   // Only the manager of the hub the shipment is routed through, not an admin:
   // the person on record is the one who actually received it.
   acknowledgeAtHub: branchOnlyQuery
-    .input(z.object({ shipmentId: z.number(), notes: z.string().optional() }))
+    .input(z.object({
+      shipmentId: z.number(),
+      receivedQty: z.number().int().min(0),
+      photos: z.array(z.string()).max(5).optional(),
+      notes: z.string().optional(),
+    }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
       const rows = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
@@ -825,6 +865,11 @@ export const shipmentRouter = createRouter({
       }
       const guard = hubAcknowledgeGuard(shipment);
       if (!guard.ok) throw new Error(guard.message);
+      validatePhotos(input.photos);
+
+      const expectedQty = shipment.actualItemCount ?? shipment.estimatedItemCount ?? null;
+      const shortBy = expectedQty !== null && input.receivedQty < expectedQty ? expectedQty - input.receivedQty : null;
+      const hasPhotos = !!(input.photos && input.photos.length > 0);
 
       await db.update(shipments)
         .set({ hubAcknowledgedAt: new Date(), hubAcknowledgedBy: ctx.user.id })
@@ -834,13 +879,25 @@ export const shipmentRouter = createRouter({
         eventType: "hub_acknowledged",
         oldStatus: "at_hub",
         newStatus: "at_hub",
-        notes: `Receipt acknowledged at the hub by ${ctx.user.name}. ${input.notes || ""}`.trim(),
+        qtyDelivered: input.receivedQty,
+        photos: input.photos ?? null,
+        notes: [
+          `Receipt acknowledged at the hub by ${ctx.user.name}.`,
+          expectedQty !== null ? `Confirmed ${input.receivedQty}/${expectedQty} items received.` : `Confirmed ${input.receivedQty} items received.`,
+          shortBy ? `${shortBy} short of expected.` : "",
+          hasPhotos ? "Damage photos attached." : "",
+          input.notes || "",
+        ].filter(Boolean).join(" "),
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
 
       void notifyHubAcknowledged(input.shipmentId, ctx.user.id).catch(() => {});
-      return { success: true };
+      if (shortBy || hasPhotos) {
+        const hubBranch = await db.select().from(branches).where(eq(branches.id, shipment.hubBranchId!)).limit(1);
+        void notifyBranchReportedIssue(input.shipmentId, hubBranch[0]?.name || "Hub", { shortBy, hasPhotos }, ctx.user.id).catch(() => {});
+      }
+      return { success: true, shortBy, hasPhotos };
     }),
 
   // ── HUB: DISPATCH ONWARD TO THE FINAL BRANCH ──

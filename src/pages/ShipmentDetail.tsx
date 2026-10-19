@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/providers/trpc";
@@ -14,8 +14,9 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogCancel,
 } from "@/components/ui/alert-dialog";
 import { STATUS_LABELS, STATUS_COLORS, RECEIVABLE_BY_BRANCH_STATUSES } from "@contracts/constants";
-import { ArrowLeft, MapPin, User, Phone, Truck, QrCode, Trash2, AlertTriangle, CheckCircle2, Building2, Check } from "lucide-react";
+import { ArrowLeft, MapPin, User, Phone, Truck, QrCode, Trash2, AlertTriangle, CheckCircle2, Building2, Check, Camera, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { resizeImage } from "@/lib/resizeImage";
 
 // <input type="datetime-local"> wants local time as YYYY-MM-DDTHH:mm
 function toLocalInputValue(d: Date): string {
@@ -63,13 +64,59 @@ export default function ShipmentDetail() {
     onError: (err) => toast.error(err.message),
   });
 
+  // ── Acknowledge dialog (shared by the final branch acknowledgement and
+  // the hub's first acknowledgement -- both are "a branch physically
+  // received this" moments, so they confirm qty and can attach damage
+  // photos the same way). `ackMode` picks which mutation submit calls.
+  const [ackMode, setAckMode] = useState<"delivery" | "hub" | null>(null);
+  const [ackSkippedHub, setAckSkippedHub] = useState(false);
+  const [ackQty, setAckQty] = useState("");
+  const [ackPhotos, setAckPhotos] = useState<string[]>([]);
+  const [ackNotes, setAckNotes] = useState("");
+  const [ackUploading, setAckUploading] = useState(false);
+  const ackFileInputRef = useRef<HTMLInputElement>(null);
+
+  const openAcknowledgeDialog = (skippedHub = false) => {
+    setAckQty(String(shipment?.actualItemCount ?? shipment?.estimatedItemCount ?? ""));
+    setAckPhotos([]);
+    setAckNotes("");
+    setAckSkippedHub(skippedHub);
+    setAckMode("delivery");
+  };
+  const openAcknowledgeHubDialog = () => {
+    setAckQty(String(shipment?.actualItemCount ?? shipment?.estimatedItemCount ?? ""));
+    setAckPhotos([]);
+    setAckNotes("");
+    setAckMode("hub");
+  };
+  const handleAckPhotoChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    if (!file.type.startsWith("image/")) { toast.error("Please select an image file"); return; }
+    if (ackPhotos.length >= 5) { toast.error("Max 5 photos"); return; }
+    setAckUploading(true);
+    try {
+      const base64 = await resizeImage(file, 1000, 1000);
+      setAckPhotos(prev => [...prev, base64]);
+    } catch {
+      toast.error("Failed to process image. Try again.");
+    } finally {
+      setAckUploading(false);
+    }
+  };
+  const removeAckPhoto = (idx: number) => setAckPhotos(prev => prev.filter((_, i) => i !== idx));
+
+  const onAcknowledgeSuccess = (result: { shortBy: number | null; hasPhotos: boolean }) => {
+    toast.success(result.shortBy || result.hasPhotos ? "Acknowledged — issue reported to the 3PL" : "Acknowledged");
+    setAckMode(null);
+    utils.shipment.getById.invalidate({ id: Number(id) });
+    utils.shipment.list.invalidate();
+    utils.shipment.attentionStats.invalidate();
+    utils.shipment.recentActivity.invalidate();
+  };
   const acknowledgeDeliveryMutation = trpc.shipment.acknowledgeDelivery.useMutation({
-    onSuccess: () => {
-      toast.success("Delivery acknowledged");
-      utils.shipment.getById.invalidate({ id: Number(id) });
-      utils.shipment.list.invalidate();
-      utils.shipment.attentionStats.invalidate();
-    },
+    onSuccess: onAcknowledgeSuccess,
     onError: (err) => toast.error(err.message),
   });
 
@@ -115,7 +162,7 @@ export default function ShipmentDetail() {
   };
 
   const acknowledgeAtHubMutation = trpc.shipment.acknowledgeAtHub.useMutation({
-    onSuccess: () => { toast.success("Receipt at hub acknowledged"); refreshShipment(); },
+    onSuccess: onAcknowledgeSuccess,
     onError: (err) => toast.error(err.message),
   });
 
@@ -353,10 +400,10 @@ export default function ShipmentDetail() {
             <Button
               className="w-full bg-[#1E7B4D] hover:bg-[#155C39] h-12 rounded-xl font-semibold"
               disabled={acknowledgeDeliveryMutation.isPending}
-              onClick={() => acknowledgeDeliveryMutation.mutate({ shipmentId: shipment.id })}
+              onClick={() => openAcknowledgeDialog()}
             >
               <CheckCircle2 size={16} className="mr-2" />
-              {acknowledgeDeliveryMutation.isPending ? "Acknowledging..." : "Acknowledge Receipt"}
+              Acknowledge Receipt
             </Button>
           )}
           {/* The hub never recorded sending it on, but it has reached the final branch. */}
@@ -365,10 +412,7 @@ export default function ShipmentDetail() {
               variant="outline"
               className="w-full h-10 rounded-xl font-semibold border-[#E8E4DC] text-ink hover:bg-white"
               disabled={acknowledgeDeliveryMutation.isPending}
-              onClick={() => {
-                if (!confirm(`${shipment.hubBranchName} hasn't recorded sending this on. Only acknowledge if it has actually reached your branch.`)) return;
-                acknowledgeDeliveryMutation.mutate({ shipmentId: shipment.id });
-              }}
+              onClick={() => openAcknowledgeDialog(true)}
             >
               <CheckCircle2 size={14} className="mr-2" /> It arrived, but the hub didn't record dispatch
             </Button>
@@ -378,7 +422,7 @@ export default function ShipmentDetail() {
             <Button
               className="w-full bg-navy hover:bg-[#0F2039] h-12 rounded-xl font-semibold"
               disabled={acknowledgeAtHubMutation.isPending}
-              onClick={() => acknowledgeAtHubMutation.mutate({ shipmentId: shipment.id })}
+              onClick={() => openAcknowledgeHubDialog()}
             >
               <Check size={16} className="mr-2" />
               {acknowledgeAtHubMutation.isPending ? "Acknowledging..." : "Acknowledge receipt at hub"}
@@ -532,6 +576,81 @@ export default function ShipmentDetail() {
                     })}
                   >
                     {markReceivedMutation.isPending ? "Saving..." : `Record ${qty >= 1 ? qty : ""} received`}
+                  </Button>
+                </div>
+              </div>
+            );
+          })()}
+        </DialogContent>
+      </Dialog>
+
+      {/* Acknowledge receipt -- final branch acknowledgement, or a hub's
+          first acknowledgement; shares state, differs only in which
+          mutation submit calls (ackMode) and the wording. */}
+      <Dialog open={ackMode !== null} onOpenChange={(open) => !open && setAckMode(null)}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader><DialogTitle>{ackMode === "hub" ? "Acknowledge Receipt at Hub" : "Acknowledge Receipt"}</DialogTitle></DialogHeader>
+          {(() => {
+            const expected = shipment.actualItemCount ?? shipment.estimatedItemCount ?? null;
+            const qty = Number(ackQty);
+            const short = expected != null && qty >= 0 && qty < expected;
+            const pending = acknowledgeDeliveryMutation.isPending || acknowledgeAtHubMutation.isPending;
+            const submit = () => {
+              if (!(qty >= 0)) return;
+              if (ackMode === "hub") {
+                acknowledgeAtHubMutation.mutate({ shipmentId: shipment.id, receivedQty: qty, photos: ackPhotos.length > 0 ? ackPhotos : undefined, notes: ackNotes.trim() || undefined });
+              } else {
+                acknowledgeDeliveryMutation.mutate({ shipmentId: shipment.id, receivedQty: qty, photos: ackPhotos.length > 0 ? ackPhotos : undefined, notes: ackNotes.trim() || undefined });
+              }
+            };
+            return (
+              <div className="space-y-3">
+                {ackSkippedHub && (
+                  <p className="rounded-lg bg-clay-soft p-2 text-[11.5px] text-[#8A5A15]">
+                    {shipment.hubBranchName} hasn't recorded sending this on. Only acknowledge if it has actually reached your branch.
+                  </p>
+                )}
+                <div>
+                  <Label htmlFor="ack-qty">Quantity received{expected != null ? ` (expected ${expected})` : ""}</Label>
+                  <Input id="ack-qty" type="number" min={0} value={ackQty} onChange={e => setAckQty(e.target.value)} className={short ? "border-[#B7791F]" : ""} />
+                  {short && (
+                    <p className="mt-2 rounded-lg bg-clay-soft p-2 text-[11.5px] text-[#8A5A15]">
+                      {expected! - qty} fewer than expected. This will be flagged to the 3PL for follow-up.
+                    </p>
+                  )}
+                </div>
+                <div>
+                  <Label>Photos {ackPhotos.length > 0 ? `(${ackPhotos.length}/5)` : "(optional — for damaged bags/cartons)"}</Label>
+                  <div className="flex flex-wrap gap-2 mt-1.5">
+                    {ackPhotos.map((p, i) => (
+                      <div key={i} className="relative w-16 h-16 rounded-lg overflow-hidden border border-[#E8E4DC]">
+                        <img src={p} alt={`Damage photo ${i + 1}`} className="w-full h-full object-cover" />
+                        <button type="button" onClick={() => removeAckPhoto(i)} className="absolute top-0.5 right-0.5 w-4 h-4 rounded-full bg-black/60 text-white flex items-center justify-center">
+                          <X size={10} />
+                        </button>
+                      </div>
+                    ))}
+                    {ackPhotos.length < 5 && (
+                      <button
+                        type="button"
+                        onClick={() => ackFileInputRef.current?.click()}
+                        disabled={ackUploading}
+                        className="w-16 h-16 rounded-lg border-2 border-dashed border-[#E8E4DC] flex items-center justify-center text-ink-soft"
+                      >
+                        {ackUploading ? <Loader2 size={16} className="animate-spin" /> : <Camera size={16} />}
+                      </button>
+                    )}
+                  </div>
+                  <input ref={ackFileInputRef} type="file" accept="image/*" className="hidden" onChange={handleAckPhotoChange} />
+                </div>
+                <div><Label htmlFor="ack-note">Note</Label><Textarea id="ack-note" value={ackNotes} onChange={e => setAckNotes(e.target.value)} rows={2} placeholder="Describe any damage..." /></div>
+                {(short || ackPhotos.length > 0) && (
+                  <p className="text-[11px] text-ink-soft">The 3PL will be notified of this issue so they can follow up.</p>
+                )}
+                <div className="flex gap-2 pt-1">
+                  <Button variant="outline" className="flex-1" onClick={() => setAckMode(null)}>Cancel</Button>
+                  <Button className="flex-[2] bg-[#1E7B4D] hover:bg-[#155C39]" disabled={!(qty >= 0) || pending} onClick={submit}>
+                    {pending ? "Saving..." : "Confirm Receipt"}
                   </Button>
                 </div>
               </div>

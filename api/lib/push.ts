@@ -397,6 +397,32 @@ export async function notifyShipmentCompleted(shipmentId: number, destBranchId: 
   );
 }
 
+// When a branch's acknowledgement comes up short of the expected quantity
+// or carries damage photos -- the 3PL needs to know so they can actually
+// act on it, not just see a note buried in the timeline later. Fired
+// alongside (not instead of) the normal completion/hub-acknowledged push.
+export async function notifyBranchReportedIssue(
+  shipmentId: number,
+  branchName: string,
+  details: { shortBy: number | null; hasPhotos: boolean },
+  exceptUserId?: number,
+): Promise<void> {
+  const shipment = await loadShipment(shipmentId);
+  if (!shipment) return;
+  const trackingId = shipment.trackingId || "N/A";
+  const parts: string[] = [];
+  if (details.shortBy && details.shortBy > 0) parts.push(`${details.shortBy} item${details.shortBy === 1 ? "" : "s"} short`);
+  if (details.hasPhotos) parts.push("damage photos attached");
+  const issueText = parts.join(", ") || "an issue";
+  const base = { tag: tagFor(shipmentId), url: urlFor(shipmentId) };
+
+  await notifyShipmentAudiences(shipment, "issue_reported",
+    { ...base, title: "Issue Reported on Receipt", body: `${branchName} reported ${issueText} for shipment ${trackingId}.` },
+    { tpl: { ...base, title: "⚠️ Issue Reported", body: `${branchName} reported ${issueText} for shipment ${trackingId}. Please review and follow up.` } },
+    exceptUserId,
+  );
+}
+
 // When a shipment is CANCELLED
 export async function notifyShipmentCancelled(shipmentId: number, cancelledBy: string, reason: string, exceptUserId?: number): Promise<void> {
   const shipment = await loadShipment(shipmentId);
