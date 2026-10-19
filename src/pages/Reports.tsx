@@ -36,6 +36,7 @@ const GLOSSARY: { term: string; def: string }[] = [
   { term: "Avg 3PL Transit", def: "Average time from when the 3PL actually took custody of a shipment to when it was delivered." },
   { term: "Avg KEDI Processing", def: "Average time from when a shipment was created to when it was handed off to the 3PL -- KEDI's own share of the timeline, kept separate from the 3PL's." },
   { term: "Late", def: "Finished shipments delivered after their estimated delivery date." },
+  { term: "Days Late", def: "How many calendar days after its estimated delivery date a shipment actually arrived -- 1 means it arrived the day after it was due." },
   { term: "Reminders", def: "Automatic nudges sent to a 3PL after 6+ hours with no status update during business hours." },
   { term: "Escalations", def: "Automatic alerts sent to KEDI's ops team after 12+ hours of continued silence from a 3PL." },
   { term: "Branch Fallbacks", def: "Times a receiving branch had to record a delivery itself because the 3PL never posted an update -- a sign the 3PL's own reporting broke down, even if the delivery itself was fine." },
@@ -587,6 +588,25 @@ export default function Reports() {
                         </div>
                       ))}
                     </div>
+                  </>
+                )}
+
+                {analytics.lateShipments.length > 0 && (
+                  <>
+                    <h2>Late Shipments This Period</h2>
+                    <table>
+                      <thead><tr><th>Tracking ID</th><th>3PL</th><th>Destination</th><th>Days Late</th></tr></thead>
+                      <tbody>
+                        {analytics.lateShipments.map(ls => (
+                          <tr key={ls.trackingId}>
+                            <td>{ls.trackingId}</td>
+                            <td>{ls.tplName}</td>
+                            <td>{ls.destBranchName}</td>
+                            <td>{ls.daysLate}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </>
                 )}
 
