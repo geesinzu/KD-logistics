@@ -8,37 +8,7 @@ import { Button } from "@/components/ui/button";
 import { ROLE_LABELS } from "@contracts/constants";
 import { toast } from "sonner";
 import { UserCircle, Phone, Shield, LogOut, Package, Camera, Loader2, Bell, BellOff, BarChart3 } from "lucide-react";
-
-function resizeImage(file: File, maxWidth: number, maxHeight: number): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      img.src = e.target?.result as string;
-      img.onload = () => {
-        let { width, height } = img;
-        if (width > maxWidth) {
-          height = (height * maxWidth) / width;
-          width = maxWidth;
-        }
-        if (height > maxHeight) {
-          width = (width * maxHeight) / height;
-          height = maxHeight;
-        }
-        const canvas = document.createElement("canvas");
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext("2d");
-        if (!ctx) { reject(new Error("Canvas error")); return; }
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL("image/jpeg", 0.85));
-      };
-      img.onerror = () => reject(new Error("Image load error"));
-    };
-    reader.onerror = () => reject(new Error("File read error"));
-    reader.readAsDataURL(file);
-  });
-}
+import { resizeImage } from "@/lib/resizeImage";
 
 export default function Profile() {
   const navigate = useNavigate();

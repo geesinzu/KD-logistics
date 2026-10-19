@@ -29,6 +29,7 @@ export type ShipmentPushEvent =
   | "onward_dispatched"
   | "branch_marked_delivered" // a branch recorded receipt because the 3PL never did
   | "completed"
+  | "issue_reported" // a branch's acknowledgement came up short or had damage photos
   | "cancelled";
 
 // On a direct route the "hub" audience is simply empty.
@@ -50,6 +51,7 @@ export const PUSH_AUDIENCES: Record<ShipmentPushEvent, PushAudience[]> = {
   onward_dispatched: FOLLOWERS,
   branch_marked_delivered: [...FOLLOWERS, "tpl"],
   completed: [...FOLLOWERS, "tpl"],
+  issue_reported: [...FOLLOWERS, "tpl"],
   cancelled: [...FOLLOWERS, "warehouse", "driver", "tpl"],
 };
 
