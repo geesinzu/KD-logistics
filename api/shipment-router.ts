@@ -155,6 +155,18 @@ function dateOnlyMs(d: Date): number {
   return Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
 }
 
+// Calendar-day lateness, shared by every on-time/late comparison in this
+// file -- 0 means on time or early, a positive number is days late. Same
+// Lagos-calendar-date reduction `computeDeliveryOutcome` uses, so "late"
+// means the same thing everywhere it's computed (analytics' own KPIs,
+// the per-3PL/per-priority breakdowns, and the 3PL trend chart each used
+// to run their own raw-millisecond comparison instead of sharing this).
+function daysLateOf(finishedAt: unknown, estimatedDeliveryDate: unknown): number {
+  const finishedDateMs = lagosCalendarDateMs(new Date(finishedAt as string));
+  const etaDateMs = dateOnlyMs(new Date(estimatedDeliveryDate as string));
+  return finishedDateMs > etaDateMs ? Math.round((finishedDateMs - etaDateMs) / ONE_DAY_MS) : 0;
+}
+
 // Compares actual delivery/completion time against the ETA set at 3PL
 // assignment -- the same comparison `analytics` already aggregates into
 // the Reports page's on-time rate, surfaced per shipment instead. Only
@@ -1641,11 +1653,24 @@ export const shipmentRouter = createRouter({
 
       let onTime = 0, late = 0, noEta = 0;
       let kediHoursTotal = 0, kediCount = 0, tplHoursTotal = 0, tplCount = 0;
+      const lateShipmentRecords: { shipmentId: number; tplId: number | null; destBranchId: number | null; hubBranchId: number | null; trackingId: string; daysLate: number }[] = [];
       for (const s of finished) {
         const finishedAt = (s.deliveredAt ?? s.completedAt)!;
         if (s.estimatedDeliveryDate) {
-          if (new Date(finishedAt).getTime() <= new Date(s.estimatedDeliveryDate).getTime()) onTime++;
-          else late++;
+          const daysLate = daysLateOf(finishedAt, s.estimatedDeliveryDate);
+          if (daysLate === 0) {
+            onTime++;
+          } else {
+            late++;
+            lateShipmentRecords.push({
+              shipmentId: s.id,
+              tplId: s.tplId,
+              destBranchId: s.destBranchId,
+              hubBranchId: s.hubBranchId,
+              trackingId: s.trackingId ?? `#${s.id}`,
+              daysLate,
+            });
+          }
         } else {
           noEta++;
         }
@@ -1756,7 +1781,7 @@ export const shipmentRouter = createRouter({
           const items = windowShipments.filter(s => s.tplId === t.id);
           const finishedItems = finished.filter(s => s.tplId === t.id);
           const withEta = finishedItems.filter(s => s.estimatedDeliveryDate);
-          const tplOnTime = withEta.filter(s => new Date((s.deliveredAt ?? s.completedAt)!).getTime() <= new Date(s.estimatedDeliveryDate!).getTime()).length;
+          const tplOnTime = withEta.filter(s => daysLateOf((s.deliveredAt ?? s.completedAt)!, s.estimatedDeliveryDate!) === 0).length;
           let transitTotal = 0, transitCount = 0;
           for (const s of finishedItems) {
             const custodyAt = custodyAtByShipment.get(s.id);
@@ -1799,7 +1824,7 @@ export const shipmentRouter = createRouter({
         .map(priority => {
           const items = finished.filter(s => s.priority === priority);
           const withEta = items.filter(s => s.estimatedDeliveryDate);
-          const pOnTime = withEta.filter(s => new Date((s.deliveredAt ?? s.completedAt)!).getTime() <= new Date(s.estimatedDeliveryDate!).getTime()).length;
+          const pOnTime = withEta.filter(s => daysLateOf((s.deliveredAt ?? s.completedAt)!, s.estimatedDeliveryDate!) === 0).length;
           return {
             priority,
             total: items.length,
@@ -1807,6 +1832,18 @@ export const shipmentRouter = createRouter({
           };
         })
         .filter(p => p.total > 0);
+
+      // Named, sorted (worst first) so the report can actually say which
+      // shipments were late and by how many days -- `late` above is only
+      // ever a count, never a list of which ones.
+      const lateShipments = lateShipmentRecords
+        .map(r => ({
+          trackingId: r.trackingId,
+          tplName: tplList.find(t => t.id === r.tplId)?.name ?? "Unassigned",
+          destBranchName: branchList.find(b => b.id === (r.hubBranchId ?? r.destBranchId))?.name ?? "Unknown",
+          daysLate: r.daysLate,
+        }))
+        .sort((a, b) => b.daysLate - a.daysLate);
 
       const statusBreakdown = SHIPMENT_STATUSES
         .map(status => ({
@@ -1834,7 +1871,7 @@ export const shipmentRouter = createRouter({
         onTimeRate: (onTime + late) > 0 ? Math.round((onTime / (onTime + late)) * 100) : null,
         avgTplTransitDays: tplCount > 0 ? Math.round((tplHoursTotal / tplCount / 24) * 10) / 10 : null,
         avgKediProcessingDays: kediCount > 0 ? Math.round((kediHoursTotal / kediCount / 24) * 10) / 10 : null,
-        byBranch, byTpl, monthly, statusBreakdown, priorityBreakdown,
+        byBranch, byTpl, monthly, statusBreakdown, priorityBreakdown, lateShipments,
       };
     }),
 
@@ -1874,7 +1911,7 @@ export const shipmentRouter = createRouter({
           return fd.getFullYear() === y && fd.getMonth() === m;
         });
         const withEta = monthItems.filter(s => s.estimatedDeliveryDate);
-        const onTime = withEta.filter(s => new Date((s.deliveredAt ?? s.completedAt)!).getTime() <= new Date(s.estimatedDeliveryDate!).getTime()).length;
+        const onTime = withEta.filter(s => daysLateOf((s.deliveredAt ?? s.completedAt)!, s.estimatedDeliveryDate!) === 0).length;
         monthly.push({
           label: d.toLocaleDateString("en-NG", { month: "short" }),
           total: monthItems.length,
