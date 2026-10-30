@@ -220,7 +220,12 @@ export default function BulkCreateShipments() {
       </div>
 
       {step === 2 && (
-        <div className="fixed bottom-0 left-0 right-0 max-w-lg mx-auto bg-white border-t border-gray-200 p-3">
+        // bottom-16 (not bottom-0): AppLayout's bottom tab nav is also fixed
+        // at bottom-0 with z-50, so anchoring here too put this bar directly
+        // underneath it -- the nav's higher z-index rendered on top and hid
+        // the Create/bulk-assign button completely, even though it was still
+        // in the DOM. bottom-16 matches the nav's own h-16 height.
+        <div className="fixed bottom-16 left-0 right-0 max-w-lg mx-auto bg-white border-t border-gray-200 p-3">
           {reviewSelected.size > 0 ? (
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500 flex-shrink-0">{reviewSelected.size} selected</span>
