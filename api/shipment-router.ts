@@ -61,6 +61,25 @@ function validatePhotos(photos: string[] | undefined): void {
   }
 }
 
+// Drizzle (this project's mysql2/planetscale mode) doesn't auto-parse the
+// trackingEvents.photos JSON column on read -- it comes back as the raw
+// JSON string, not an array, so every read site needs to parse it before
+// handing it to the frontend or checking it in JS. Storage itself is fine
+// (insert writes valid JSON); already-parsed/array/null all pass through
+// safely too, so this is safe to call defensively everywhere photos is read.
+function parseEventPhotos(raw: unknown): string[] {
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
 function isValidEventDate(d: unknown): boolean {
   if (!d) return false;
   const time = new Date(d as string).getTime();
@@ -1283,7 +1302,7 @@ export const shipmentRouter = createRouter({
             ))
         : [];
       const shipmentIdsWithPhotos = new Set(
-        ackEvents.filter(e => Array.isArray(e.photos) && e.photos.length > 0).map(e => e.shipmentId)
+        ackEvents.filter(e => parseEventPhotos(e.photos).length > 0).map(e => e.shipmentId)
       );
 
       const now = new Date();
@@ -1364,7 +1383,7 @@ export const shipmentRouter = createRouter({
             actorName = u[0]?.name || "Unknown";
           }
         }
-        return { ...ev, actorName };
+        return { ...ev, actorName, photos: parseEventPhotos(ev.photos) };
       }));
 
       return {
@@ -1679,7 +1698,8 @@ export const shipmentRouter = createRouter({
       let rawEvents = (await db.select().from(trackingEvents)
         .where(eq(trackingEvents.shipmentId, input.shipmentId))
         .orderBy(trackingEvents.id))
-        .filter(e => e.eventType !== "tpl_update_reminder" && e.eventType !== "tpl_update_overdue");
+        .filter(e => e.eventType !== "tpl_update_reminder" && e.eventType !== "tpl_update_overdue")
+        .map(e => ({ ...e, photos: parseEventPhotos(e.photos) }));
 
       // 3PL only ever sees the shipment's story from the moment it was
       // assigned to their company onward -- what happened at KEDI's
