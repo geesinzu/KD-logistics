@@ -988,12 +988,16 @@ export const shipmentRouter = createRouter({
 
   // ── BRANCH: MARK RECEIVED (the 3PL never posted a delivery update) ──
   // The receiving branch (the hub on a hub route, otherwise the destination)
-  // records what actually arrived and when. Only that branch's own manager,
-  // not an admin. "Time received" is what the 3PL's on-time result is judged
-  // against, so it is the real arrival time, not the moment of tapping.
-  // The quantity is the TOTAL received so far: full completes the receipt,
-  // short records a partial delivery and stays open for a later top-up.
-  markReceivedByBranch: branchOnlyQuery
+  // records what actually arrived and when. Same admin-override pattern as
+  // acknowledgeDelivery: a branch_manager can only act for their own branch,
+  // but super_admin/admin aren't tied to one -- this is also how a shortfall
+  // from acknowledgeDelivery gets topped up later, and that step should be
+  // reachable by whoever could do the step before it. "Time received" is
+  // what the 3PL's on-time result is judged against, so it is the real
+  // arrival time, not the moment of tapping. The quantity is the TOTAL
+  // received so far: full completes the receipt, short records a partial
+  // delivery and stays open for a later top-up.
+  markReceivedByBranch: branchManagerQuery
     .input(z.object({
       shipmentId: z.number(),
       receivedAt: z.string(),
@@ -1005,7 +1009,7 @@ export const shipmentRouter = createRouter({
       const rows = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
       const shipment = rows[0];
       if (!shipment) throw new Error("Shipment not found");
-      if (receivingBranchId(shipment) !== ctx.user.branchId) {
+      if (ctx.user.role === "branch_manager" && receivingBranchId(shipment) !== ctx.user.branchId) {
         throw new TRPCError({ code: "FORBIDDEN", message: "You can only record receipt for shipments arriving at your own branch" });
       }
       const guard = markReceivedGuard(shipment);
