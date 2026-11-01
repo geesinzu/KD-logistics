@@ -42,6 +42,7 @@ export default function ShipmentDetail() {
     (role === "branch_manager" && shipment?.destBranchId === user?.branchId)
   );
 
+  const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
   const [showDeleteShipment, setShowDeleteShipment] = useState(false);
   const [deleteReason, setDeleteReason] = useState("");
 
@@ -486,6 +487,20 @@ export default function ShipmentDetail() {
                           </>
                         ) : "Unknown time"}
                       </p>
+                      {Array.isArray(event.photos) && event.photos.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-1.5">
+                          {event.photos.map((p: string, pi: number) => (
+                            <button
+                              key={pi}
+                              type="button"
+                              onClick={() => setLightboxPhoto(p)}
+                              className="w-12 h-12 rounded-md overflow-hidden border border-[#E8E4DC] flex-shrink-0"
+                            >
+                              <img src={p} alt={`Attached photo ${pi + 1}`} className="w-full h-full object-cover" />
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                     {isSuperAdmin && (
                       <button
@@ -679,6 +694,24 @@ export default function ShipmentDetail() {
           })()}
         </DialogContent>
       </Dialog>
+
+      {/* Photo lightbox -- tap a thumbnail in the timeline to view it full-size */}
+      {lightboxPhoto && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/85 flex items-center justify-center p-4"
+          onClick={() => setLightboxPhoto(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxPhoto(null)}
+            className="absolute top-4 right-4 text-white/80 hover:text-white p-2"
+            aria-label="Close"
+          >
+            <X size={22} />
+          </button>
+          <img src={lightboxPhoto} alt="Attached photo" className="max-w-full max-h-full rounded-lg object-contain" />
+        </div>
+      )}
 
       <AlertDialog open={showDeleteShipment} onOpenChange={(open) => { setShowDeleteShipment(open); if (!open) setDeleteReason(""); }}>
         <AlertDialogContent>
