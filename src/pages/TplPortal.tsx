@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { Truck, LogOut, MapPin, Package, CheckCircle2, Clock, ChevronDown, ChevronUp, Bell, BellOff, Loader2 } from "lucide-react";
+import { Truck, LogOut, MapPin, Package, CheckCircle2, Clock, ChevronDown, ChevronUp, Bell, BellOff, Loader2, AlertTriangle } from "lucide-react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useTplRecentActivity, useTplUnreadNotificationCount, markTplNotificationsSeen } from "@/hooks/useNotifications";
 import { EVENT_ICONS, EVENT_LABELS, formatEventTime } from "@/lib/notificationEvents";
@@ -126,6 +126,10 @@ export default function TplPortal() {
     // In Transit: active shipments NOT needing immediate action
     if (filter === "active") return activeStatuses.includes(s.status) && !["at_3pl", "picked_up_by_3pl", "waiting_3pl_pickup"].includes(s.status);
     if (filter === "done") return doneStatuses.includes(s.status);
+    // Needs Follow-up: a receiving branch reported a shortage or damage --
+    // a real problem to investigate, distinct from "OUTSTANDING" (the 3PL's
+    // own under-confirmed receipt at intake).
+    if (filter === "follow_up") return !!s.needsFollowUp;
     return true;
   });
 
@@ -174,6 +178,7 @@ export default function TplPortal() {
           {[
             { key: "all", label: "All" },
             { key: "needs_action", label: "Needs Receipt", color: "bg-red-600" },
+            ...(myShipments.some(s => s.needsFollowUp) ? [{ key: "follow_up", label: "Needs Follow-up", color: "bg-red-600" }] : []),
             { key: "active", label: "In Transit" },
             { key: "done", label: "Completed" },
           ].map(f => (
@@ -197,7 +202,7 @@ export default function TplPortal() {
             // Receipt flow, not a backlog to top up later.
             const outstanding = s.tplConfirmedQty != null ? (s.actualItemCount || 0) - s.tplConfirmedQty : 0;
             return (
-              <Card key={s.id} className={`border-0 shadow-sm ${needsReceipt ? "ring-1 ring-red-200" : needsPickup ? "ring-1 ring-blue-200" : ""}`}>
+              <Card key={s.id} className={`border-0 shadow-sm ${s.needsFollowUp ? "ring-1 ring-red-300" : needsReceipt ? "ring-1 ring-red-200" : needsPickup ? "ring-1 ring-blue-200" : ""}`}>
                 <CardContent className="p-3">
                   {/* Row 1: ID + Status */}
                   <div className="flex items-center justify-between mb-1">
@@ -209,6 +214,12 @@ export default function TplPortal() {
                       <Badge className={`text-[9px] ${STATUS_COLORS[s.status] || ""}`}>{STATUS_LABELS[s.status] || s.status}</Badge>
                     </div>
                   </div>
+                  {s.needsFollowUp && (
+                    <div className="mb-1.5 flex items-center gap-1 text-[10px] font-semibold text-red-700 bg-red-50 border border-red-200 rounded-md px-2 py-1">
+                      <AlertTriangle size={11} />
+                      {s.remainingQty ? `${s.remainingQty} item(s) short — branch reported a shortage` : "Branch reported a problem with this delivery"}
+                    </div>
+                  )}
                   {/* Row 2: Details */}
                   <p className="text-[11px] text-gray-500 mb-1">
                     To: {s.destinationBranch} | {s.actualItemCount || 0} items

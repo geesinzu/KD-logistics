@@ -107,8 +107,14 @@ export default function ShipmentDetail() {
   };
   const removeAckPhoto = (idx: number) => setAckPhotos(prev => prev.filter((_, i) => i !== idx));
 
-  const onAcknowledgeSuccess = (result: { shortBy: number | null; hasPhotos: boolean }) => {
-    toast.success(result.shortBy || result.hasPhotos ? "Acknowledged — issue reported to the 3PL" : "Acknowledged");
+  const onAcknowledgeSuccess = (result: { shortBy?: number | null; hasPhotos?: boolean; remaining?: number }) => {
+    const stillShort = typeof result.remaining === "number" && result.remaining > 0;
+    const message = stillShort
+      ? `Acknowledged — ${result.remaining} item(s) still short. Record the rest once they arrive; the 3PL's been notified.`
+      : (result.shortBy || result.hasPhotos)
+      ? "Acknowledged — issue reported to the 3PL"
+      : "Acknowledged";
+    toast.success(message);
     setAckMode(null);
     utils.shipment.getById.invalidate({ id: Number(id) });
     utils.shipment.list.invalidate();
@@ -150,9 +156,19 @@ export default function ShipmentDetail() {
   // person on record is the one who actually received or sent the shipment.
   const isHubRoute = !!shipment?.hubBranchId;
   const isHubManager = role === "branch_manager" && !!shipment?.hubBranchId && shipment.hubBranchId === user?.branchId;
-  const receivingBranchId = shipment ? (shipment.hubBranchId ?? shipment.destBranchId) : null;
+  // Mirrors the backend's receivingBranchId (api/lib/shipment-flow.ts): once
+  // onwardDispatchedAt is set, the hub's stage is over and the final branch
+  // owns anything still to record (e.g. topping up a shortfall they found
+  // at their own acknowledgement) -- without this a hub-route shipment's
+  // "receiving branch" stayed the hub forever, even on its last leg.
+  const receivingBranchId = shipment
+    ? (shipment.hubBranchId && !shipment.onwardDispatchedAt ? shipment.hubBranchId : shipment.destBranchId)
+    : null;
   const canMarkReceived = role === "branch_manager" && !!shipment && receivingBranchId === user?.branchId &&
     (RECEIVABLE_BY_BRANCH_STATUSES as readonly string[]).includes(shipment.status);
+  // A shortfall from this branch's own earlier acknowledgement, not the
+  // original "3PL never updated" fallback -- same action, different story.
+  const isToppingUpOwnShortfall = shipment?.status === "partially_delivered" && shipment?.deliveryReportedBy === "branch";
 
   const refreshShipment = () => {
     utils.shipment.getById.invalidate({ id: Number(id) });
@@ -198,7 +214,9 @@ export default function ShipmentDetail() {
   });
   const openReceivedDialog = () => {
     setReceivedAt(toLocalInputValue(new Date()));
-    setReceivedQty(String(shipment?.actualItemCount ?? shipment?.estimatedItemCount ?? ""));
+    setReceivedQty(isToppingUpOwnShortfall
+      ? String(shipment?.deliveredQty ?? "")
+      : String(shipment?.actualItemCount ?? shipment?.estimatedItemCount ?? ""));
     setShowReceived(true);
   };
 
@@ -433,10 +451,11 @@ export default function ShipmentDetail() {
               <Truck size={16} className="mr-2" /> Dispatch onward to {shipment.destinationBranch}
             </Button>
           )}
-          {/* The 3PL never posted a delivery update but the shipment has arrived */}
+          {/* Either the 3PL never posted a delivery update, or this branch's
+              own earlier acknowledgement came up short and is being topped up. */}
           {canMarkReceived && (
             <Button variant="outline" className="w-full h-10 rounded-xl font-semibold border-[#E8E4DC] text-ink hover:bg-white" onClick={openReceivedDialog}>
-              <Check size={14} className="mr-2" /> Mark as received (3PL hasn't updated)
+              <Check size={14} className="mr-2" /> {isToppingUpOwnShortfall ? "Record remaining items received" : "Mark as received (3PL hasn't updated)"}
             </Button>
           )}
           {shipment.qrCodeToken && (
@@ -541,9 +560,11 @@ export default function ShipmentDetail() {
       {/* Mark as received (branch manager, 3PL never updated) */}
       <Dialog open={showReceived} onOpenChange={setShowReceived}>
         <DialogContent className="max-w-sm">
-          <DialogHeader><DialogTitle>Mark as received</DialogTitle></DialogHeader>
+          <DialogHeader><DialogTitle>{isToppingUpOwnShortfall ? "Record Remaining Items" : "Mark as Received"}</DialogTitle></DialogHeader>
           <p className="text-xs text-ink-soft -mt-1">
-            {shipment.tplName || "The 3PL"} hasn't posted a delivery update. Record what actually arrived{isHubRoute ? ` at ${shipment.hubBranchName}` : ` at ${shipment.destinationBranch}`}.
+            {isToppingUpOwnShortfall
+              ? `You previously confirmed ${shipment.deliveredQty ?? 0} of ${shipment.actualItemCount ?? shipment.estimatedItemCount ?? "?"} items. Enter the new total now that more has arrived.`
+              : `${shipment.tplName || "The 3PL"} hasn't posted a delivery update. Record what actually arrived${isHubRoute ? ` at ${shipment.hubBranchName}` : ` at ${shipment.destinationBranch}`}.`}
           </p>
           {(() => {
             const expected = shipment.actualItemCount ?? shipment.estimatedItemCount ?? null;
