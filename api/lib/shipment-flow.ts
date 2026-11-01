@@ -17,9 +17,16 @@ export type GuardResult = { ok: true } | { ok: false; message: string };
 const ok = { ok: true } as const;
 const no = (message: string) => ({ ok: false, message }) as const;
 
-// Where the 3PL's job ends: the hub on a hub route, otherwise the destination.
-export function receivingBranchId(s: { hubBranchId: number | null; destBranchId: number }): number {
-  return s.hubBranchId ?? s.destBranchId;
+// Where the 3PL's job ends: the hub on a hub route, otherwise the destination
+// -- EXCEPT once the hub has already dispatched it onward (onwardDispatchedAt
+// set), at which point the hub's own stage is over and the final branch is
+// the one responsible for anything that still needs recording (e.g. a
+// shortfall found at the final acknowledgement, topped up later). Without
+// this, a hub-route shipment's "receiving branch" stayed the hub forever,
+// even on its last leg.
+export function receivingBranchId(s: { hubBranchId: number | null; destBranchId: number; onwardDispatchedAt?: unknown }): number {
+  if (s.hubBranchId && !s.onwardDispatchedAt) return s.hubBranchId;
+  return s.destBranchId;
 }
 
 // A 3PL full delivery stops at the hub on a hub route.
@@ -49,6 +56,9 @@ export function dispatchOnwardGuard(s: FlowShipment): GuardResult {
 // if the hub never recorded the dispatch, the final branch may still close it
 // out from "at_hub" -- flagged so the log can say the step was skipped.
 export function finalAcknowledgeGuard(s: FlowShipment): { ok: true; skippedOnward: boolean } | { ok: false; message: string } {
+  // A shortfall from an earlier acknowledgement left this open for a
+  // top-up -- same action, called again, regardless of route.
+  if (s.status === "partially_delivered") return { ok: true, skippedOnward: false };
   if (!s.hubBranchId) {
     return s.status === "delivered" ? { ok: true, skippedOnward: false } : no("Only a fully delivered shipment can be acknowledged");
   }

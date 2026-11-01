@@ -788,9 +788,12 @@ export const shipmentRouter = createRouter({
     }),
 
   // ── BRANCH MANAGER: ACKNOWLEDGE DELIVERY (Step 9) ──
-  // The destination branch confirms the shipment has been received, closing it
-  // out as "completed". Direct route: valid from "delivered" only -- a partial
-  // delivery isn't done yet. Hub route: valid once the hub has sent it on
+  // The destination branch confirms what actually arrived. A full count
+  // closes it out as "completed"; a short count records "partially_delivered"
+  // and stays open -- calling this again (guarded to also accept that status)
+  // is how the remainder gets topped up later, same split as
+  // markReceivedByBranch. Direct route: valid from "delivered" (or a prior
+  // shortfall). Hub route: valid once the hub has sent it on
   // ("onward_in_transit"); if the hub never recorded the dispatch, the final
   // branch can still close it out from "at_hub" and the log says the step
   // was skipped. Who may do this is unchanged from before.
@@ -813,8 +816,40 @@ export const shipmentRouter = createRouter({
       validatePhotos(input.photos);
 
       const expectedQty = shipment[0].actualItemCount ?? shipment[0].estimatedItemCount ?? null;
-      const shortBy = expectedQty !== null && input.receivedQty < expectedQty ? expectedQty - input.receivedQty : null;
+      const outcome = receiptOutcome(input.receivedQty, expectedQty);
+      const shortBy = outcome.kind === "partial" ? outcome.remaining : null;
       const hasPhotos = !!(input.photos && input.photos.length > 0);
+      const branch = await db.select().from(branches).where(eq(branches.id, shipment[0].destBranchId)).limit(1);
+      const branchName = branch[0]?.name || "Branch";
+
+      // A shortfall stays open -- same partial/full split markReceivedByBranch
+      // already uses, so "record what's missing" always means the same thing
+      // everywhere in the app, and the remainder can be topped up later
+      // instead of the shipment closing out on an acknowledged gap.
+      if (outcome.kind === "partial") {
+        await db.update(shipments)
+          .set({ status: "partially_delivered", deliveredQty: input.receivedQty, remainingQty: outcome.remaining, deliveryReportedBy: "branch" })
+          .where(eq(shipments.id, input.shipmentId));
+        await db.insert(trackingEvents).values({
+          shipmentId: input.shipmentId,
+          eventType: "delivery_acknowledged",
+          oldStatus: shipment[0].status,
+          newStatus: "partially_delivered",
+          qtyDelivered: input.receivedQty,
+          qtyRemaining: outcome.remaining,
+          photos: input.photos ?? null,
+          notes: [
+            `Delivery acknowledged by ${ctx.user.name}.`,
+            `Confirmed ${input.receivedQty}/${expectedQty} items received. ${outcome.remaining} short of expected.`,
+            hasPhotos ? "Damage photos attached." : "",
+            input.notes || "",
+          ].filter(Boolean).join(" "),
+          createdBy: ctx.user.id,
+          actorRole: ctx.user.role,
+        });
+        void notifyBranchReportedIssue(input.shipmentId, branchName, { shortBy, hasPhotos }, ctx.user.id).catch(() => {});
+        return { success: true, completed: false, remaining: outcome.remaining, hasPhotos };
+      }
 
       await db.update(shipments).set({ status: "completed", completedAt: new Date() }).where(eq(shipments.id, input.shipmentId));
       await db.insert(trackingEvents).values({
@@ -829,7 +864,6 @@ export const shipmentRouter = createRouter({
             ? `Delivery acknowledged by ${ctx.user.name}. The hub did not record the onward dispatch.`
             : `Delivery acknowledged by ${ctx.user.name}.`,
           expectedQty !== null ? `Confirmed ${input.receivedQty}/${expectedQty} items received.` : `Confirmed ${input.receivedQty} items received.`,
-          shortBy ? `${shortBy} short of expected.` : "",
           hasPhotos ? "Damage photos attached." : "",
           input.notes || "",
         ].filter(Boolean).join(" "),
@@ -838,11 +872,10 @@ export const shipmentRouter = createRouter({
       });
 
       void notifyShipmentCompleted(input.shipmentId, shipment[0].destBranchId, shipment[0].trackingId || "N/A").catch(() => {});
-      if (shortBy || hasPhotos) {
-        const branch = await db.select().from(branches).where(eq(branches.id, shipment[0].destBranchId)).limit(1);
-        void notifyBranchReportedIssue(input.shipmentId, branch[0]?.name || "Branch", { shortBy, hasPhotos }, ctx.user.id).catch(() => {});
+      if (hasPhotos) {
+        void notifyBranchReportedIssue(input.shipmentId, branchName, { shortBy: null, hasPhotos }, ctx.user.id).catch(() => {});
       }
-      return { success: true, shortBy, hasPhotos };
+      return { success: true, completed: true, remaining: 0, hasPhotos };
     }),
 
   // ── HUB: ACKNOWLEDGE RECEIPT AT THE HUB (acknowledgement #1) ──
@@ -985,7 +1018,12 @@ export const shipmentRouter = createRouter({
 
       const expected = shipment.actualItemCount ?? shipment.estimatedItemCount ?? null;
       const outcome = receiptOutcome(input.receivedQty, expected);
-      const isHubRoute = !!shipment.hubBranchId;
+      // "Still the hub's stage" only while it hasn't been dispatched onward
+      // yet -- once onwardDispatchedAt is set, completing this is the final
+      // branch's job (e.g. topping up a shortfall from their own earlier
+      // acknowledgement), and should close out as "completed", not reopen
+      // the hub-arrival step it already finished.
+      const isHubRoute = !!shipment.hubBranchId && !shipment.onwardDispatchedAt;
       const branchName = (await db.select().from(branches).where(eq(branches.id, ctx.user.branchId!)).limit(1))[0]?.name || "Branch";
       const noteText = input.note ? ` ${input.note}` : "";
       const actor = { createdBy: ctx.user.id, actorRole: ctx.user.role };
@@ -1214,6 +1252,7 @@ export const shipmentRouter = createRouter({
         updatedAt: shipments.updatedAt,
         deliveredQty: shipments.deliveredQty,
         remainingQty: shipments.remainingQty,
+        deliveryReportedBy: shipments.deliveryReportedBy,
       })
         .from(shipments)
         .where(where)
@@ -1225,6 +1264,23 @@ export const shipmentRouter = createRouter({
       const branchList = branchIds.length > 0
         ? await db.select().from(branches).where(inArray(branches.id, branchIds as number[]))
         : [];
+
+      // Visible "needs your follow-up" signal -- a branch's acknowledgement
+      // either came up short (still "partially_delivered", caught below via
+      // status/deliveryReportedBy) or carried damage photos even on a full
+      // count (caught here, since that doesn't change status at all).
+      const shipmentIds = results.map(s => s.id);
+      const ackEvents = shipmentIds.length > 0
+        ? await db.select({ shipmentId: trackingEvents.shipmentId, photos: trackingEvents.photos })
+            .from(trackingEvents)
+            .where(and(
+              inArray(trackingEvents.shipmentId, shipmentIds),
+              inArray(trackingEvents.eventType, ["delivery_acknowledged", "hub_acknowledged"]),
+            ))
+        : [];
+      const shipmentIdsWithPhotos = new Set(
+        ackEvents.filter(e => Array.isArray(e.photos) && e.photos.length > 0).map(e => e.shipmentId)
+      );
 
       const now = new Date();
       const todayMs = lagosCalendarDateMs(now);
@@ -1242,12 +1298,14 @@ export const shipmentRouter = createRouter({
         // (that is where their agreement ends), and once they have, it is
         // simply "delivered". The onward leg is KEDI's own business.
         const deliverToBranchId = s.hubBranchId ?? s.destBranchId;
+        const needsFollowUp = (s.status === "partially_delivered" && s.deliveryReportedBy === "branch") || shipmentIdsWithPhotos.has(s.id);
         return {
           ...s,
           status: (ONWARD_STATUSES as readonly string[]).includes(s.status) ? "delivered" : s.status,
           destinationBranch: branchList.find(b => b.id === deliverToBranchId)?.name || "Unknown",
           slaStatus,
           daysUntilEta: daysUntil,
+          needsFollowUp,
         };
       });
 
