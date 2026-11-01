@@ -9,7 +9,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
-import { Truck, LogOut, MapPin, Package, CheckCircle2, Clock, ChevronDown, ChevronUp, Bell, BellOff, Loader2, AlertTriangle } from "lucide-react";
+import { Truck, LogOut, MapPin, Package, CheckCircle2, Clock, ChevronDown, ChevronUp, Bell, BellOff, Loader2, AlertTriangle, X } from "lucide-react";
 import { usePushNotifications } from "@/hooks/usePushNotifications";
 import { useTplRecentActivity, useTplUnreadNotificationCount, markTplNotificationsSeen } from "@/hooks/useNotifications";
 import { EVENT_ICONS, EVENT_LABELS, formatEventTime } from "@/lib/notificationEvents";
@@ -28,6 +28,7 @@ export default function TplPortal() {
   const [newDeliveryDate, setNewDeliveryDate] = useState("");
   const [expandedId, setExpandedId] = useState<number | null>(null);
   const [showNotifications, setShowNotifications] = useState(false);
+  const [lightboxPhoto, setLightboxPhoto] = useState<string | null>(null);
 
   const utils = trpc.useUtils();
   const { data: me } = trpc.tpl.me.useQuery();
@@ -284,6 +285,20 @@ export default function TplPortal() {
                                 ) : "Unknown time"}
                                 {e.location ? ` @ ${e.location}` : ""}
                               </p>
+                              {Array.isArray(e.photos) && e.photos.length > 0 && (
+                                <div className="flex flex-wrap gap-1.5 mt-1">
+                                  {e.photos.map((p: string, pi: number) => (
+                                    <button
+                                      key={pi}
+                                      type="button"
+                                      onClick={() => setLightboxPhoto(p)}
+                                      className="w-10 h-10 rounded-md overflow-hidden border border-gray-200 flex-shrink-0"
+                                    >
+                                      <img src={p} alt={`Attached photo ${pi + 1}`} className="w-full h-full object-cover" />
+                                    </button>
+                                  ))}
+                                </div>
+                              )}
                             </div>
                           </div>
                         ))}
@@ -441,6 +456,24 @@ export default function TplPortal() {
             </div>
           </DialogContent>
         </Dialog>
+      )}
+
+      {/* Photo lightbox -- tap a thumbnail in the activity log to view it full-size */}
+      {lightboxPhoto && (
+        <div
+          className="fixed inset-0 z-[100] bg-black/85 flex items-center justify-center p-4"
+          onClick={() => setLightboxPhoto(null)}
+        >
+          <button
+            type="button"
+            onClick={() => setLightboxPhoto(null)}
+            className="absolute top-4 right-4 text-white/80 hover:text-white p-2"
+            aria-label="Close"
+          >
+            <X size={22} />
+          </button>
+          <img src={lightboxPhoto} alt="Attached photo" className="max-w-full max-h-full rounded-lg object-contain" />
+        </div>
       )}
 
       {/* Notifications Dialog */}
