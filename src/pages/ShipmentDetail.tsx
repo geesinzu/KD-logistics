@@ -153,8 +153,9 @@ export default function ShipmentDetail() {
   };
 
   // ── Hub route + branch fallback ──
-  // Only the responsible branch manager gets these (no admin override): the
-  // person on record is the one who actually received or sent the shipment.
+  // isHubManager/dispatch stay branch_manager-only (no admin override): the
+  // person on record is the one who actually sent the shipment onward.
+  // canMarkReceived (below) does allow admin, matching canAcknowledge.
   const isHubRoute = !!shipment?.hubBranchId;
   const isHubManager = role === "branch_manager" && !!shipment?.hubBranchId && shipment.hubBranchId === user?.branchId;
   // Mirrors the backend's receivingBranchId (api/lib/shipment-flow.ts): once
@@ -165,8 +166,10 @@ export default function ShipmentDetail() {
   const receivingBranchId = shipment
     ? (shipment.hubBranchId && !shipment.onwardDispatchedAt ? shipment.hubBranchId : shipment.destBranchId)
     : null;
-  const canMarkReceived = role === "branch_manager" && !!shipment && receivingBranchId === user?.branchId &&
-    (RECEIVABLE_BY_BRANCH_STATUSES as readonly string[]).includes(shipment.status);
+  // Same admin-override pattern as canAcknowledge: a branch_manager can only
+  // act for their own branch, but super_admin/admin aren't tied to one.
+  const canMarkReceived = !!shipment && (RECEIVABLE_BY_BRANCH_STATUSES as readonly string[]).includes(shipment.status) &&
+    !!role && (["super_admin", "admin"].includes(role) || (role === "branch_manager" && receivingBranchId === user?.branchId));
   // A shortfall from this branch's own earlier acknowledgement, not the
   // original "3PL never updated" fallback -- same action, different story.
   const isToppingUpOwnShortfall = shipment?.status === "partially_delivered" && shipment?.deliveryReportedBy === "branch";
