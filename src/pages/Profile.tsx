@@ -45,8 +45,8 @@ export default function Profile() {
   };
 
   return (
-    <div className="p-4 max-w-lg mx-auto">
-      <h1 className="text-lg font-bold text-[#1E293B] mb-4">Profile</h1>
+    <div className="management-page profile-management">
+      <h1 className="management-title mb-6">Profile</h1>
 
       {/* User card with profile picture */}
       <Card className="border-0 shadow-sm mb-4">
@@ -65,6 +65,7 @@ export default function Profile() {
             )}
             {/* Upload button overlay */}
             <button
+              aria-label="Change profile photo"
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
               className="absolute -bottom-1 -right-1 w-7 h-7 bg-white rounded-full shadow border border-gray-200 flex items-center justify-center"

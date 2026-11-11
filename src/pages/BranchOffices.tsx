@@ -45,16 +45,16 @@ export default function BranchOffices() {
   }
 
   return (
-    <div className="p-4 max-w-lg mx-auto space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <h1 className="text-lg font-bold text-[#1E293B]">Branch Offices</h1>
+    <div className="management-page branch-management space-y-4">
+      <div className="management-heading">
+        <h1 className="management-title">Branch Offices</h1>
         <Button className="bg-[#003B7A]" onClick={() => { resetForm(); setShowForm(!showForm); }} disabled={isSaving}>
           {showForm ? "Close" : "Add Branch"}
         </Button>
       </div>
       <p className="text-sm text-gray-600">Add an office to make it available for shipments and staff assignments. After adding it, assign a branch manager under <Link to="/users" className="underline text-blue-700">Users</Link>.</p>
       {showForm && (
-        <form className="bg-white rounded-lg border p-4 space-y-3" onSubmit={e => {
+        <form className="management-form bg-white rounded-lg border p-4 space-y-3" onSubmit={e => {
           e.preventDefault();
           const details = { ...form, hubBranchId: form.hubBranchId ? Number(form.hubBranchId) : null };
           if (editingId !== null) update.mutate({ id: editingId, ...details });
@@ -78,9 +78,9 @@ export default function BranchOffices() {
       {isLoading && <p role="status">Loading branch offices…</p>}
       {error && <div role="alert"><p className="text-red-600">Could not load branch offices.</p><Button variant="outline" onClick={() => void refetch()}>Try again</Button></div>}
       {branches?.length === 0 && <p>No branch offices yet. Add your first office above.</p>}
-      <div className="space-y-2">
+      <div className="management-card-grid">
         {branches?.map(branch => (
-          <div key={branch.id} className="bg-white rounded-lg border p-3">
+          <div key={branch.id} className="branch-office-card bg-white rounded-lg border p-3">
             <div className="flex justify-between gap-2"><h2 className="font-semibold">{branch.name}</h2><span className="text-xs rounded bg-blue-50 px-2 py-1 text-blue-800">{branch.code}</span></div>
             {branch.city && <p className="text-sm text-gray-600">{branch.city}</p>}
             {branch.address && <p className="text-sm text-gray-600 whitespace-pre-wrap">{branch.address}</p>}

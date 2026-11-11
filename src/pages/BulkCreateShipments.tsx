@@ -126,10 +126,10 @@ export default function BulkCreateShipments() {
   }
 
   return (
-    <div className="max-w-lg mx-auto">
-      <div className="sticky top-0 z-40 bg-[#0F172A] text-white px-4 py-3 flex items-center gap-3">
-        <button onClick={() => step === 2 ? setStep(1) : navigate(-1)} className="p-1"><ArrowLeft size={20} /></button>
-        <h1 className="text-sm font-bold">{step === 1 ? "Bulk Create Shipments" : `Review (${rows.length})`}</h1>
+    <div className="workflow-page">
+      <div className="workflow-header">
+        <button onClick={() => step === 2 ? setStep(1) : navigate(-1)} className="workflow-back" aria-label="Go back"><ArrowLeft size={20} /></button>
+        <h1 className="workflow-title">{step === 1 ? "Bulk Create Shipments" : `Review (${rows.length})`}</h1>
       </div>
 
       <div className={`p-4 ${step === 2 ? "pb-24" : ""}`}>
@@ -220,12 +220,8 @@ export default function BulkCreateShipments() {
       </div>
 
       {step === 2 && (
-        // bottom-16 (not bottom-0): AppLayout's bottom tab nav is also fixed
-        // at bottom-0 with z-50, so anchoring here too put this bar directly
-        // underneath it -- the nav's higher z-index rendered on top and hid
-        // the Create/bulk-assign button completely, even though it was still
-        // in the DOM. bottom-16 matches the nav's own h-16 height.
-        <div className="fixed bottom-16 left-0 right-0 max-w-lg mx-auto bg-white border-t border-gray-200 p-3">
+        // Keep review actions visible above mobile navigation.
+        <div className="bulk-actionbar">
           {reviewSelected.size > 0 ? (
             <div className="flex items-center gap-2">
               <span className="text-xs text-gray-500 flex-shrink-0">{reviewSelected.size} selected</span>

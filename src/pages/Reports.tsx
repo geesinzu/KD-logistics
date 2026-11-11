@@ -207,7 +207,7 @@ export default function Reports() {
   const [selectedTplId, setSelectedTplId] = useState<number | null>(null);
   const [selectedBranchId, setSelectedBranchId] = useState<number | null>(null);
   const printRef = useRef<HTMLDivElement>(null);
-  const { data: analytics, isLoading } = trpc.shipment.analytics.useQuery({ from, to });
+  const { data: analytics, isLoading, error: reportError, refetch: reloadReport } = trpc.shipment.analytics.useQuery({ from, to });
   const { data: tplTrend } = trpc.shipment.tplTrend.useQuery({ tplId: selectedTplId! }, { enabled: !!selectedTplId });
   const { data: branchTrend } = trpc.shipment.branchTrend.useQuery({ branchId: selectedBranchId! }, { enabled: !!selectedBranchId });
 
@@ -322,10 +322,10 @@ export default function Reports() {
   }
 
   return (
-    <div className="max-w-lg mx-auto">
-      <div className="sticky top-0 z-40 bg-[#0F172A] text-white px-4 py-3 flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="p-1"><ArrowLeft size={20} /></button>
-        <h1 className="text-sm font-bold flex-1">Reports</h1>
+    <div className="workflow-page report-page">
+      <div className="workflow-header">
+        <button onClick={() => navigate(-1)} className="workflow-back" aria-label="Go back"><ArrowLeft size={20} /></button>
+        <h1 className="workflow-title flex-1">Reports</h1>
         {analytics && (
           <div className="flex gap-1.5">
             <button onClick={exportCsv} className="p-1.5 rounded-md hover:bg-white/10" title="Export CSV"><Download size={16} /></button>
@@ -335,6 +335,7 @@ export default function Reports() {
       </div>
 
       <div className="p-4">
+        {reportError && <p role="alert" className="operations-message">Could not load the report. <button className="underline" onClick={() => void reloadReport()}>Try again</button></p>}
         {isLoading && <p className="text-sm text-gray-400 text-center py-8">Loading...</p>}
 
         {analytics && (
@@ -717,7 +718,7 @@ export default function Reports() {
 
       {/* 3PL drill-down: trailing 12 months, independent of the main date range */}
       <Dialog open={!!selectedTplId} onOpenChange={(open) => !open && setSelectedTplId(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="workspace-dialog max-w-sm">
           <DialogHeader><DialogTitle>{tplTrend?.tplName ?? "Loading..."} — 12 Month Trend</DialogTitle></DialogHeader>
           {tplTrend ? (
             <ChartContainer config={tplTrendConfig} className="h-52 w-full">
@@ -740,7 +741,7 @@ export default function Reports() {
 
       {/* Branch drill-down: trailing 12 months, independent of the main date range */}
       <Dialog open={!!selectedBranchId} onOpenChange={(open) => !open && setSelectedBranchId(null)}>
-        <DialogContent className="max-w-sm">
+        <DialogContent className="workspace-dialog max-w-sm">
           <DialogHeader><DialogTitle>{branchTrend?.branchName ?? "Loading..."} — 12 Month Trend</DialogTitle></DialogHeader>
           {branchTrend ? (
             <ChartContainer config={branchTrendConfig} className="h-52 w-full">

@@ -10,7 +10,7 @@ export default function DriverDeliveries() {
   const navigate = useNavigate();
   const [filter, setFilter] = useState("all");
 
-  const { data: deliveries, isLoading } = trpc.shipment.myDeliveries.useQuery({ page: 1, limit: 50 });
+  const { data: deliveries, isLoading, error, refetch } = trpc.shipment.myDeliveries.useQuery({ page: 1, limit: 50 });
 
   const filtered = deliveries?.filter(d => {
     if (filter === "active") return !["delivered", "completed", "cancelled"].includes(d.status);
@@ -23,10 +23,10 @@ export default function DriverDeliveries() {
   const completedCount = filtered.filter(d => ["delivered", "completed"].includes(d.status)).length;
 
   return (
-    <div className="max-w-lg mx-auto">
-      <div className="sticky top-0 z-40 bg-[#0F172A] text-white px-4 py-3 flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="p-1"><ArrowLeft size={20} /></button>
-        <h1 className="text-sm font-bold">My Deliveries</h1>
+    <div className="workflow-page ">
+      <div className="workflow-header">
+        <button onClick={() => navigate(-1)} className="workflow-back" aria-label="Go back"><ArrowLeft size={20} /></button>
+        <h1 className="workflow-title">My Deliveries</h1>
       </div>
       <div className="p-4">
         {/* Stats */}
@@ -39,7 +39,7 @@ export default function DriverDeliveries() {
         {/* Filter */}
         <div className="flex gap-2 mb-3">
           {["all", "active", "completed"].map(f => (
-            <button key={f} onClick={() => setFilter(f)}
+            <button key={f} aria-pressed={filter === f} onClick={() => setFilter(f)}
               className={`px-4 py-1.5 rounded-full text-xs font-medium capitalize transition-colors ${filter === f ? "bg-[#003B7A] text-white" : "bg-gray-100 text-gray-600"}`}>
               {f}
             </button>
@@ -47,11 +47,12 @@ export default function DriverDeliveries() {
         </div>
 
         {/* Deliveries list */}
+        {error && <p role="alert" className="operations-message">Could not load deliveries. <button className="underline" onClick={() => void refetch()}>Try again</button></p>}
         {isLoading && <p className="text-center py-4 text-gray-400">Loading...</p>}
-        {filtered.length === 0 && <p className="text-center py-8 text-gray-400">No deliveries found</p>}
+        {!isLoading && !error && filtered.length === 0 && <p className="text-center py-8 text-gray-400">No deliveries found</p>}
         <div className="space-y-2">
           {filtered.map(d => (
-            <Card key={d.id} className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow" onClick={() => navigate(`/shipments/${d.id}`)}>
+            <Card key={d.id} className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow" role="link" tabIndex={0} onKeyDown={e => { if (e.key === "Enter") navigate(`/shipments/${d.id}`); }} onClick={() => navigate(`/shipments/${d.id}`)}>
               <CardContent className="p-3">
                 <div className="flex items-center justify-between">
                   <div>

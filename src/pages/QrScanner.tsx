@@ -236,10 +236,10 @@ export default function QrScanner() {
   };
 
   return (
-    <div className="max-w-lg mx-auto">
-      <div className="sticky top-0 z-40 bg-[#0F172A] text-white px-4 py-3 flex items-center gap-3">
-        <button onClick={() => { stopCamera(); navigate(-1); }} className="p-1"><ArrowLeft size={20} /></button>
-        <h1 className="text-sm font-bold">Scan QR Code</h1>
+    <div className="workflow-page">
+      <div className="workflow-header">
+        <button onClick={() => { stopCamera(); navigate(-1); }} className="workflow-back" aria-label="Go back"><ArrowLeft size={20} /></button>
+        <h1 className="workflow-title">Scan QR Code</h1>
       </div>
 
       {!scanResult && (
@@ -273,7 +273,7 @@ export default function QrScanner() {
                   </div>
                   <p className="absolute bottom-4 left-0 right-0 text-center text-white/70 text-xs">Align QR code within frame</p>
                 </div>
-                <button onClick={stopCamera} className="absolute top-3 right-3 p-2 bg-black/50 rounded-full text-white z-10">
+                <button aria-label="Stop camera" onClick={stopCamera} className="absolute top-3 right-3 p-2 bg-black/50 rounded-full text-white z-10">
                   <CameraOff size={16} />
                 </button>
               </>
@@ -324,8 +324,9 @@ export default function QrScanner() {
               <input
                 value={manualInput}
                 onChange={e => setManualInput(e.target.value)}
+                aria-label="Tracking ID"
                 placeholder="Enter tracking ID (e.g., KEDI-EN2606506)"
-                className="flex-1 h-10 px-3 rounded-lg border border-gray-200 text-sm"
+                className="flex-1 min-w-0 h-10 px-3 rounded-lg border border-gray-200 text-sm"
                 onKeyDown={e => e.key === "Enter" && handleManual()}
               />
               <Button size="sm" className="bg-[#003B7A] h-10 px-4" onClick={handleManual}>Go</Button>

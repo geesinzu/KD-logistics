@@ -229,12 +229,12 @@ export default function ShipmentDetail() {
 
   const events = shipment.trackingEvents || [];
   return (
-    <div className="max-w-lg mx-auto bg-ground min-h-full">
+    <div className="workflow-page workflow-detail">
       {/* Header */}
-      <div className="sticky top-0 z-40 bg-navy text-white px-4 py-3 flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="p-1"><ArrowLeft size={20} /></button>
+      <div className="workflow-header">
+        <button onClick={() => navigate(-1)} className="workflow-back" aria-label="Go back"><ArrowLeft size={20} /></button>
         <div>
-          <h1 className="text-sm font-bold font-display">{shipment.trackingId || `Shipment #${shipment.id}`}</h1>
+          <h1 className="workflow-title">{shipment.trackingId || `Shipment #${shipment.id}`}</h1>
         </div>
       </div>
 

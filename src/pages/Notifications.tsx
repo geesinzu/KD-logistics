@@ -9,7 +9,7 @@ import { EVENT_ICONS, EVENT_LABELS, formatEventTime } from "@/lib/notificationEv
 export default function Notifications() {
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { data, isLoading } = useRecentActivity(50);
+  const { data, isLoading, error, refetch } = useRecentActivity(50);
 
   useEffect(() => {
     markNotificationsSeen(user?.id);
@@ -18,15 +18,16 @@ export default function Notifications() {
   const events = data?.events ?? [];
 
   return (
-    <div className="max-w-lg mx-auto">
-      <div className="sticky top-0 z-40 bg-[#0F172A] text-white px-4 py-3 flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="p-1"><ArrowLeft size={20} /></button>
-        <h1 className="text-sm font-bold">Notifications</h1>
+    <div className="workflow-page ">
+      <div className="workflow-header">
+        <button onClick={() => navigate(-1)} className="workflow-back" aria-label="Go back"><ArrowLeft size={20} /></button>
+        <h1 className="workflow-title">Notifications</h1>
       </div>
 
       <div className="p-4 space-y-2">
+        {error && <p role="alert" className="operations-message">Could not load activity. <button className="underline" onClick={() => void refetch()}>Try again</button></p>}
         {isLoading && <p className="text-sm text-gray-400 text-center py-8">Loading...</p>}
-        {!isLoading && events.length === 0 && (
+        {!isLoading && !error && events.length === 0 && (
           <div className="text-center py-12">
             <Bell size={32} className="mx-auto text-gray-300 mb-2" />
             <p className="text-sm text-gray-400">No activity yet</p>
@@ -38,6 +39,7 @@ export default function Notifications() {
             <Card
               key={ev.id}
               className="border-0 shadow-sm cursor-pointer hover:shadow-md transition-shadow"
+              role="link" tabIndex={0} onKeyDown={e => { if (e.key === "Enter") navigate(`/shipments/${ev.shipmentId}`); }}
               onClick={() => navigate(`/shipments/${ev.shipmentId}`)}
             >
               <CardContent className="p-3 flex items-start gap-3">
