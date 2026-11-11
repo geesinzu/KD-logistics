@@ -84,5 +84,9 @@ The new office appears in shipment and staff branch selectors. Open **Users** to
 create or approve a **Branch Manager** assigned to it so someone can receive
 notifications and acknowledge deliveries. New offices use their database code
 in tracking IDs; existing seeded offices retain their original prefixes. No
-schema migration or seed rerun is required. This screen adds offices; existing
-routes and offices are not edited through it.
+schema migration or seed rerun is required. Super Admins can select **Edit Branch** to update office details and routing.
+Admins can add offices but cannot edit them. Route changes affect new shipments;
+existing shipments retain their stored routes and tracking IDs. Lagos HQ keeps
+its required name, code, and direct route; its city and address are editable.
+An office serving as a hub must have its dependent offices rerouted before it
+can be routed through another hub.
