@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { registerWithExpiryRecovery, withPushRegistrationLock } from "@/lib/pushRegistration";
 import { trpc } from "@/providers/trpc";
 
 // iOS only exposes PushManager when the page is running as an installed
@@ -52,6 +53,7 @@ export function usePushNotifications(variant: "kedi" | "tpl" = "kedi") {
   const [isSupported, setIsSupported] = useState(false);
   const [isSubscribed, setIsSubscribed] = useState(false);
   const [permission, setPermission] = useState<NotificationPermission>("default");
+  const [isRepairing, setIsRepairing] = useState(false);
   const [isChecking, setIsChecking] = useState(true);
   const [lastError, setLastError] = useState<string | null>(null);
   // Only meaningful when isSupported is false -- explains WHY, so the UI can
@@ -128,42 +130,35 @@ export function usePushNotifications(variant: "kedi" | "tpl" = "kedi") {
     reconciled.current = true;
     const serverKey = vapidData.key;
 
-    void (async () => {
+    setIsRepairing(true);
+    void withPushRegistrationLock(async () => {
       try {
         const registration = await navigator.serviceWorker.ready;
         const subscription = await registration.pushManager.getSubscription();
         if (!subscription) { setIsSubscribed(false); return; }
-
-        if (!subscriptionMatchesKey(subscription, serverKey)) {
-          console.warn("[Push] Subscription was made with a different server key; re-subscribing");
-          await subscription.unsubscribe();
-          // The old subscription is gone from this phone now, so if it can't be
-          // replaced the honest state is "off" and the person taps Enable.
-          try {
-            if (Notification.permission !== "granted") throw new Error("notification permission not granted");
-            const fresh = await registration.pushManager.subscribe({
-              userVisibleOnly: true,
-              applicationServerKey: urlBase64ToUint8Array(serverKey),
-            });
-            await registerWithServer(fresh, true);
-          } catch (err) {
-            console.error("[Push] Could not re-subscribe with the new server key:", err);
-            setIsSubscribed(false);
-          }
-          return;
-        }
-
         const status = await utils.push.status.fetch({ endpoint: subscription.endpoint, kind: variant });
-        if (!status.registeredToMe) {
-          console.warn("[Push] Server had no registration for this device under this user; re-registering");
-          await registerWithServer(subscription, true);
+        if (!subscriptionMatchesKey(subscription, serverKey) || !status.registeredToMe) {
+          // A 404/410 send removes its server row, but the browser can keep
+          // returning the dead endpoint. Renew it instead of silently storing
+          // that same endpoint again. No welcome push during background repair.
+          if (!await subscription.unsubscribe()) throw new Error("Could not renew push subscription");
+          setIsSubscribed(false);
+          if (Notification.permission !== "granted") return;
+          const fresh = await registration.pushManager.subscribe({
+            userVisibleOnly: true,
+            applicationServerKey: urlBase64ToUint8Array(serverKey),
+          });
+          const result = await registerWithServer(fresh, true);
+          setIsSubscribed(result.ok);
+          if (result.ok) setLastError(null);
         }
       } catch (err) {
-        // Couldn't check or repair right now (offline, signed out...). Leave the
-        // toggle as the phone reports it and try again next time.
         console.error("[Push] Reconcile failed:", err);
+        setLastError(err instanceof Error ? err.message : "push_repair_failed");
+      } finally {
+        setIsRepairing(false);
       }
-    })();
+    });
   }, [isSupported, isChecking, isSubscribed, vapidData, variant, utils, registerWithServer]);
 
   const subscribe = useCallback(async (): Promise<SubscribeResult> => {
@@ -179,18 +174,22 @@ export function usePushNotifications(variant: "kedi" | "tpl" = "kedi") {
       const perm = await Notification.requestPermission();
       setPermission(perm);
       if (perm !== "granted") { setLastError(`permission_${perm}`); return { ok: false }; }
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey: urlBase64ToUint8Array(vapidData.key),
+      return await withPushRegistrationLock(async () => {
+        const registration = await navigator.serviceWorker.ready;
+        const renew = () => registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(vapidData.key),
+        });
+        const subscription = await renew();
+        const result = await registerWithExpiryRecovery(subscription,
+          sub => registerWithServer(sub, false), renew);
+        setIsSubscribed(result.ok);
+        if (result.testDelivered === false) setLastError(`test_push_failed_${result.failureCode ?? "unknown"}`);
+        else if (result.ok) setLastError(null);
+        return result;
       });
-      console.log("[Push] Subscribed:", subscription.endpoint.substring(0, 40) + "...");
-      const result = await registerWithServer(subscription, false);
-      if (!result.ok) return result;
-      setIsSubscribed(true);
-      if (result.testDelivered === false) setLastError(`test_push_failed_${result.failureCode ?? "unknown"}`);
-      return result;
     } catch (err) {
+      setIsSubscribed(false);
       console.error("[Push] Subscription failed:", err);
       setLastError(err instanceof Error ? `${err.name}: ${err.message}` : String(err));
       return { ok: false };
@@ -199,18 +198,20 @@ export function usePushNotifications(variant: "kedi" | "tpl" = "kedi") {
 
   const unsubscribe = useCallback(async () => {
     try {
-      const registration = await navigator.serviceWorker.ready;
-      const subscription = await registration.pushManager.getSubscription();
-      if (subscription) {
-        // Only this device: disabling on one phone must not switch off the
-        // same person's other phones.
-        await unsubscribeMutation.mutateAsync({ endpoint: subscription.endpoint });
-        await subscription.unsubscribe();
-      }
-      setIsSubscribed(false);
-      setLastError(null);
-      console.log("[Push] Unsubscribed");
-      return true;
+      return await withPushRegistrationLock(async () => {
+        const registration = await navigator.serviceWorker.ready;
+        const subscription = await registration.pushManager.getSubscription();
+        if (subscription) {
+          // Only this device: disabling on one phone must not switch off the
+          // same person's other phones.
+          await unsubscribeMutation.mutateAsync({ endpoint: subscription.endpoint });
+          await subscription.unsubscribe();
+        }
+        setIsSubscribed(false);
+        setLastError(null);
+        console.log("[Push] Unsubscribed");
+        return true;
+      });
     } catch (err) {
       console.error("[Push] Unsubscribe failed:", err);
       return false;
@@ -226,7 +227,7 @@ export function usePushNotifications(variant: "kedi" | "tpl" = "kedi") {
     unsubscribe,
     // Includes the server-key lookup, so screens don't flash "not set up on
     // the server yet" for the moment before that answer arrives.
-    isConfiguring: subscribeMutation.isPending || unsubscribeMutation.isPending || isChecking || vapidLoading,
+    isConfiguring: subscribeMutation.isPending || unsubscribeMutation.isPending || isChecking || isRepairing || vapidLoading,
     // True once the vapidKey query has resolved and the server has both VAPID
     // keys set. False (not undefined) while loading, so callers that only
     // want to know "definitely not available" can check `=== false`.
