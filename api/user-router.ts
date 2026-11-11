@@ -1,12 +1,28 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import bcrypt from "bcryptjs";
-import { eq, like, desc, sql, and, or } from "drizzle-orm";
-import { users } from "@db/schema";
+import { eq, like, desc, sql, and, or, ne } from "drizzle-orm";
+import { users, branches } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { createRouter, adminQuery, superAdminQuery, authedQuery } from "./middleware";
 import type { KediRole } from "@contracts/constants";
 
 const PHONE_REGEX = /^\d{11}$/;
+
+async function validateStaffBranch(id: number, branchId: number | null) {
+  const db = getDb();
+  const [staff] = await db.select().from(users).where(eq(users.id, id)).limit(1);
+  if (!staff) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found" });
+  if (staff.role === "branch_manager" && branchId === null) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "A branch manager must be assigned to a branch" });
+  }
+  if (branchId !== null) {
+    const [branch] = await db.select().from(branches).where(eq(branches.id, branchId)).limit(1);
+    if (!branch || branch.status !== "active") {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Select an active branch office" });
+    }
+  }
+}
 
 export const userRouter = createRouter({
   list: authedQuery
@@ -112,9 +128,37 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
-  updateBranch: adminQuery
-    .input(z.object({ id: z.number(), branchId: z.number().nullable() }))
+  updateStaff: superAdminQuery
+    .input(z.object({
+      id: z.number().int().positive(),
+      name: z.string().trim().min(2).max(100),
+      phone: z.string().regex(PHONE_REGEX, "Enter an 11-digit phone number"),
+      email: z.string().trim().email().max(320).or(z.literal("")),
+      branchId: z.number().int().positive().nullable(),
+    }))
     .mutation(async ({ input }) => {
+      await validateStaffBranch(input.id, input.branchId);
+      const db = getDb();
+      const duplicate = await db.select({ id: users.id }).from(users)
+        .where(and(ne(users.id, input.id), eq(users.phone, input.phone))).limit(1);
+      if (duplicate.length) throw new TRPCError({ code: "CONFLICT", message: "Phone number already belongs to another staff member" });
+      const { id, ...details } = input;
+      try {
+        await db.update(users).set({ ...details, email: details.email || null }).where(eq(users.id, id));
+      } catch (error) {
+        const cause = error as { code?: string; cause?: { code?: string } };
+        if (cause.code === "ER_DUP_ENTRY" || cause.cause?.code === "ER_DUP_ENTRY") {
+          throw new TRPCError({ code: "CONFLICT", message: "Phone number already belongs to another staff member" });
+        }
+        throw error;
+      }
+      return { success: true };
+    }),
+
+  updateBranch: superAdminQuery
+    .input(z.object({ id: z.number().int().positive(), branchId: z.number().int().positive().nullable() }))
+    .mutation(async ({ input }) => {
+      await validateStaffBranch(input.id, input.branchId);
       const db = getDb();
       await db.update(users).set({ branchId: input.branchId }).where(eq(users.id, input.id));
       return { success: true };

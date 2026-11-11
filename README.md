@@ -90,3 +90,14 @@ existing shipments retain their stored routes and tracking IDs. Lagos HQ keeps
 its required name, code, and direct route; its city and address are editable.
 An office serving as a hub must have its dependent offices rerouted before it
 can be routed through another hub.
+
+
+### Transferring staff to another branch
+
+A **Super Admin** can open **Users → Edit Staff**, update the staff member’s
+name/contact details and assigned branch, then save. The current branch is shown
+on each staff card. Branch managers must be assigned to an active office.
+Changing a branch manager’s branch changes their branch-scoped access and future
+notifications on subsequent requests; existing shipment records remain intact.
+Roles, passwords, and account status are preserved. Regular Admins cannot use
+the staff editing or branch-transfer endpoints.

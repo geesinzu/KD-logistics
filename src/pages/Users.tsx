@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -17,6 +18,8 @@ const PHONE_REGEX = /^\d{11}$/;
 function digitsOnly11(v: string) { return v.replace(/\D/g, "").slice(0, 11); }
 
 export default function Users() {
+  const { isSuperAdmin } = useAuth();
+  const [editingStaff, setEditingStaff] = useState<{ id: number; name: string; phone: string; email: string; branchId: string; role: string } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [page] = useState(1);
@@ -46,9 +49,17 @@ export default function Users() {
 
   const utils = trpc.useUtils();
   const { data, isLoading } = trpc.user.list.useQuery({ page, limit: 20, search: search || undefined, status: statusFilter || undefined });
-  const { data: branchesData } = trpc.branch.list.useQuery();
+  const { data: branchesData, isLoading: branchesLoading, error: branchesError, refetch: refetchBranches } = trpc.branch.list.useQuery();
   const { data: tplList } = trpc.tpl.list.useQuery();
   const { data: tplUsersList } = trpc.tpl.listUsers.useQuery(undefined, { enabled: showAdd3pl });
+
+  const editStaffMutation = trpc.user.updateStaff.useMutation({
+    onSuccess: async () => {
+      await utils.invalidate();
+      setEditingStaff(null);
+      toast.success("Staff details and branch assignment updated");
+    },
+  });
 
   const approveUserMutation = trpc.user.approveUser.useMutation({
     onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); setReviewUser(null); toast.success("User approved and activated"); },
@@ -123,11 +134,16 @@ export default function Users() {
                     <Badge className={`text-[9px] ${statusColors[u.status] || ""}`}>{u.status}</Badge>
                   </div>
                   <p className="text-[11px] text-gray-500">{u.phone}</p>
+                  <p className="text-[11px] text-gray-500">{u.branchId ? branchesData?.find(b => b.id === u.branchId)?.name || "Branch unavailable" : "No branch assigned"}</p>
                   <div className="flex items-center gap-2 mt-1">
                     <Badge variant="outline" className="text-[9px]">{ROLE_LABELS[u.role as keyof typeof ROLE_LABELS] || u.role}</Badge>
                   </div>
                 </div>
                 <div className="flex flex-col gap-1 items-end">
+                  {isSuperAdmin && <Button size="sm" variant="outline" className="h-7 text-xs px-2" aria-label={`Edit ${u.name}`} onClick={() => {
+                    editStaffMutation.reset();
+                    setEditingStaff({ id: u.id, name: u.name, phone: u.phone, email: u.email ?? "", branchId: u.branchId ? String(u.branchId) : "", role: u.role });
+                  }}>Edit Staff</Button>}
                   {u.status === "pending" && (
                     <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
                       onClick={() => openReview({ id: u.id, name: u.name, role: u.role, branchId: u.branchId })}>
@@ -147,6 +163,36 @@ export default function Users() {
           </Card>
         ))}
       </div>
+
+      {editingStaff && (
+        <Dialog open onOpenChange={open => { if (!open && !editStaffMutation.isPending) setEditingStaff(null); }}>
+          <DialogContent>
+            <DialogHeader><DialogTitle>Edit Staff</DialogTitle></DialogHeader>
+            <form className="space-y-3" onSubmit={e => {
+              e.preventDefault();
+              editStaffMutation.mutate({ id: editingStaff.id, name: editingStaff.name, phone: editingStaff.phone, email: editingStaff.email, branchId: editingStaff.branchId ? Number(editingStaff.branchId) : null });
+            }}>
+              <div><Label htmlFor="staff-name">Name</Label><Input id="staff-name" required minLength={2} maxLength={100} value={editingStaff.name} onChange={e => setEditingStaff({ ...editingStaff, name: e.target.value })} /></div>
+              <div><Label htmlFor="staff-phone">Phone</Label><Input id="staff-phone" required inputMode="numeric" pattern="[0-9]{11}" maxLength={11} value={editingStaff.phone} onChange={e => setEditingStaff({ ...editingStaff, phone: digitsOnly11(e.target.value) })} /></div>
+              <div><Label htmlFor="staff-email">Email (optional)</Label><Input id="staff-email" type="email" maxLength={320} value={editingStaff.email} onChange={e => setEditingStaff({ ...editingStaff, email: e.target.value })} /></div>
+              <div><Label htmlFor="staff-branch">Assigned branch{editingStaff.role === "branch_manager" ? " *" : ""}</Label>
+                <select id="staff-branch" className="w-full rounded-md border bg-white p-2 text-sm" required={editingStaff.role === "branch_manager"} value={editingStaff.branchId} disabled={branchesLoading || !!branchesError || editStaffMutation.isPending} onChange={e => setEditingStaff({ ...editingStaff, branchId: e.target.value })}>
+                  <option value="">No branch assigned</option>
+                  {editingStaff.branchId && !branchesData?.some(b => String(b.id) === editingStaff.branchId) && <option value={editingStaff.branchId} disabled>Current branch unavailable — select an active office</option>}
+                  {branchesData?.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}
+                </select>
+              </div>
+              <p className="text-xs text-gray-500">For branch managers, transferring changes access and future shipment notifications to the selected office. Shipment history stays unchanged. Their role, password, and account status stay the same.</p>
+              {branchesError && <div role="alert" className="text-sm text-red-600">Could not load branches. <Button type="button" variant="outline" onClick={() => void refetchBranches()}>Try again</Button></div>}
+              {editStaffMutation.error && <p role="alert" className="text-sm text-red-600">{editStaffMutation.error.message}</p>}
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" disabled={editStaffMutation.isPending} onClick={() => setEditingStaff(null)}>Cancel</Button>
+                <Button type="submit" className="flex-1 bg-[#003B7A]" disabled={editStaffMutation.isPending || branchesLoading || !!branchesError || (!!editingStaff.branchId && !branchesData?.some(b => String(b.id) === editingStaff.branchId))}>{editStaffMutation.isPending ? "Saving…" : "Save Staff Changes"}</Button>
+              </div>
+            </form>
+          </DialogContent>
+        </Dialog>
+      )}
 
       {/* ── Add KEDI User Dialog ── */}
       {showAdd && (
