@@ -125,6 +125,7 @@ export default function Profile() {
               <div>
                 <p className="text-sm font-medium">
                   {!isServerConfigured && !isConfiguring ? "Notifications unavailable"
+                    : lastError ? "Notifications need attention"
                     : isSubscribed ? "Notifications enabled"
                     : permission === "denied" ? "Notifications blocked" : "Notifications disabled"}
                 </p>
@@ -160,7 +161,9 @@ export default function Profile() {
             </div>
             {lastError && (
               <p className="text-[10px] text-red-500 mt-2">
-                Last error: {lastError} — if you report an issue, include this code.
+                {lastError.startsWith("test_push_failed_410") || lastError.startsWith("test_push_failed_404")
+                  ? "This device’s push registration expired. Tap Enable to renew it. If it still fails, close and reopen the app, then try again."
+                  : `Last error: ${lastError} — if you report an issue, include this code.`}
               </p>
             )}
           </CardContent>
