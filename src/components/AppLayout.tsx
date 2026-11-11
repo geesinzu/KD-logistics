@@ -2,7 +2,7 @@ import { Outlet, useNavigate, useLocation } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useUnreadNotificationCount } from "@/hooks/useNotifications";
 import { usePushSelfHeal } from "@/hooks/usePushNotifications";
-import { Home, Package, Users, ScanLine, UserCircle, Bell } from "lucide-react";
+import { Home, Package, Users, ScanLine, UserCircle, Bell, Building2 } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
 
 export function AppLayout() {
@@ -18,7 +18,7 @@ export function AppLayout() {
   const tabs = [
     { path: "/", icon: Home, label: "Home" },
     { path: "/shipments", icon: Package, label: "Shipments" },
-    ...(isAdmin ? [{ path: "/users", icon: Users, label: "Users" }] : []),
+    ...(isAdmin ? [{ path: "/users", icon: Users, label: "Users" }, { path: "/branches", icon: Building2, label: "Branches" }] : []),
     { path: "/scan", icon: ScanLine, label: "Scan" },
     { path: "/profile", icon: UserCircle, label: "Profile" },
   ];

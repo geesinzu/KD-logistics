@@ -13,6 +13,7 @@ import WarehouseProcess from "./pages/WarehouseProcess";
 import Assign3pl from "./pages/Assign3pl";
 import DriverDeliveries from "./pages/DriverDeliveries";
 import QrScanner from "./pages/QrScanner";
+import BranchOffices from "./pages/BranchOffices";
 import Users from "./pages/Users";
 import Profile from "./pages/Profile";
 import Reports from "./pages/Reports";
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="/assign-3pl/:id" element={<ProtectedRoute requiredRoles={["super_admin","admin","logistics_officer"]}><Assign3pl /></ProtectedRoute>} />
         <Route path="/driver/deliveries" element={<ProtectedRoute requiredRoles={["super_admin","admin","driver"]}><DriverDeliveries /></ProtectedRoute>} />
         <Route path="/scan" element={<ProtectedRoute><QrScanner /></ProtectedRoute>} />
+        <Route path="/branches" element={<ProtectedRoute requiredRoles={["super_admin","admin"]}><BranchOffices /></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute requiredRoles={["super_admin","admin"]}><Users /></ProtectedRoute>} />
         <Route path="/reports" element={<ProtectedRoute requiredRoles={["super_admin","admin","logistics_officer","viewer"]}><Reports /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
