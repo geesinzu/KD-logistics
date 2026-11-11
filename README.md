@@ -71,3 +71,18 @@ export default defineConfig([
   },
 ])
 ```
+
+### Adding a branch office
+
+Sign in as an **Admin** or **Super Admin**, open **Branches** in the bottom
+navigation, and select **Add Branch**. Enter the office name, a unique 2–5
+character alphanumeric code, and optionally its city and address. Select direct
+delivery or an existing hub office, then save. Offices already served through a
+hub cannot themselves be selected as hubs.
+
+The new office appears in shipment and staff branch selectors. Open **Users** to
+create or approve a **Branch Manager** assigned to it so someone can receive
+notifications and acknowledge deliveries. New offices use their database code
+in tracking IDs; existing seeded offices retain their original prefixes. No
+schema migration or seed rerun is required. This screen adds offices; existing
+routes and offices are not edited through it.

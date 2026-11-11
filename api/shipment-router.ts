@@ -1,10 +1,11 @@
+import { branchTrackingCode } from "./lib/branch-tracking";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, desc, and, or, sql, inArray, gte, lt, lte, like } from "drizzle-orm";
 import { shipments, trackingEvents, users, branches, thirdPartyLogistics, activityLog } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { createRouter, authedQuery, adminQuery, superAdminQuery, branchManagerQuery, branchOnlyQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
-import { BRANCH_TRACKING_CODES, SHIPMENT_STATUSES, STATUS_LABELS, IN_TRANSIT_STATUSES, TPL_DONE_STATUSES, ONWARD_STATUSES } from "@contracts/constants";
+import { SHIPMENT_STATUSES, STATUS_LABELS, IN_TRANSIT_STATUSES, TPL_DONE_STATUSES, ONWARD_STATUSES } from "@contracts/constants";
 import {
   notifyShipmentCreated, notifyWarehouseProcessed, notify3plAssigned, notifyDriverAssigned,
   notify3plStatusUpdate, notifyShipmentDelivered, notifyShipmentCompleted,
@@ -24,8 +25,8 @@ import { checkTplUpdateReminders } from "./lib/reminders";
 const branchScope = (branchId: number) =>
   or(eq(shipments.destBranchId, branchId), eq(shipments.hubBranchId, branchId));
 
-function generateTrackingId(branchName: string): string {
-  const code = BRANCH_TRACKING_CODES[branchName] || "XX";
+function generateTrackingId(branch: { code: string }): string {
+  const code = branchTrackingCode(branch.code);
   const now = new Date();
   const yy = String(now.getFullYear()).slice(2);
   const mm = String(now.getMonth() + 1).padStart(2, "0");
@@ -265,7 +266,7 @@ export const shipmentRouter = createRouter({
         actorRole: ctx.user.role,
       });
       // Push notification to destination (and hub) branch managers
-      const trackingId = branch[0] ? generateTrackingId(branch[0].name) : "pending";
+      const trackingId = branch[0] ? generateTrackingId(branch[0]) : "pending";
       void notifyShipmentCreated(shipmentId, input.destBranchId, trackingId).catch(() => {});
       return { success: true, shipmentId };
     }),
@@ -339,7 +340,7 @@ export const shipmentRouter = createRouter({
           createdBy: ctx.user.id,
           actorRole: ctx.user.role,
         });
-        const trackingId = branch[0] ? generateTrackingId(branch[0].name) : "pending";
+        const trackingId = branch[0] ? generateTrackingId(branch[0]) : "pending";
         void notifyShipmentCreated(shipmentId, b.destBranchId, trackingId).catch(() => {});
       }
       return { success: true, shipmentIds };
@@ -360,8 +361,8 @@ export const shipmentRouter = createRouter({
       if (!shipment[0]) throw new Error("Shipment not found");
 
       const branch = await db.select().from(branches).where(eq(branches.id, shipment[0].destBranchId)).limit(1);
-      const branchName = branch[0]?.name || "XX";
-      const trackingId = generateTrackingId(branchName);
+      if (!branch[0]) throw new TRPCError({ code: "NOT_FOUND", message: "Destination branch not found" });
+      const trackingId = generateTrackingId(branch[0]);
       const qrToken = generateQrToken();
 
       await db.update(shipments)
