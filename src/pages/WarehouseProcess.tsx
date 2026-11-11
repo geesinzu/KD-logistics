@@ -126,10 +126,10 @@ export default function WarehouseProcess() {
   }
 
   return (
-    <div className="max-w-lg mx-auto">
-      <div className="sticky top-0 z-40 bg-[#0F172A] text-white px-4 py-3 flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="p-1"><ArrowLeft size={20} /></button>
-        <h1 className="text-sm font-bold">Process Shipment</h1>
+    <div className="workflow-page">
+      <div className="workflow-header">
+        <button onClick={() => navigate(-1)} className="workflow-back" aria-label="Go back"><ArrowLeft size={20} /></button>
+        <h1 className="workflow-title">Process Shipment</h1>
       </div>
       <div className="p-4">
         <Card className="border-0 shadow-sm mb-4 bg-yellow-50">
@@ -141,22 +141,22 @@ export default function WarehouseProcess() {
             </p>
           </CardContent>
         </Card>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="workflow-form space-y-5">
           <div>
-            <Label>Actual Item Count *</Label>
-            <Input type="number" value={actualItemCount} onChange={e => setActualItemCount(e.target.value)} placeholder="e.g., 15" required />
+            <Label htmlFor="actual-count">Actual Item Count *</Label>
+            <Input id="actual-count" type="number" value={actualItemCount} onChange={e => setActualItemCount(e.target.value)} placeholder="e.g., 15" required />
           </div>
           <div>
-            <Label>Item Details *</Label>
-            <Textarea value={itemDetails} onChange={e => setItemDetails(e.target.value)} placeholder="15 cartons of KEDI health products, 3 boxes of supplements..." required />
+            <Label htmlFor="item-details">Item Details *</Label>
+            <Textarea id="item-details" value={itemDetails} onChange={e => setItemDetails(e.target.value)} placeholder="15 cartons of KEDI health products, 3 boxes of supplements..." required />
           </div>
           <div>
-            <Label>Storage Location *</Label>
-            <Input value={storageLocation} onChange={e => setStorageLocation(e.target.value)} placeholder="Warehouse A, Shelf 12" required />
+            <Label htmlFor="storage-location">Storage Location *</Label>
+            <Input id="storage-location" value={storageLocation} onChange={e => setStorageLocation(e.target.value)} placeholder="Warehouse A, Shelf 12" required />
           </div>
           <div>
-            <Label>Weight (kg) *</Label>
-            <Input type="number" step="0.01" min="0.01" value={weightKg} onChange={e => setWeightKg(e.target.value)} placeholder="e.g., 12.5" required />
+            <Label htmlFor="weight">Weight (kg) *</Label>
+            <Input id="weight" type="number" step="0.01" min="0.01" value={weightKg} onChange={e => setWeightKg(e.target.value)} placeholder="e.g., 12.5" required />
             <p className="text-[10px] text-gray-400 mt-0.5">Total shipment weight in kilograms</p>
           </div>
           {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</p>}

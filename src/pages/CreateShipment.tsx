@@ -18,7 +18,7 @@ export default function CreateShipment() {
   const [error, setError] = useState("");
 
   const utils = trpc.useUtils();
-  const { data: branches } = trpc.branch.list.useQuery();
+  const { data: branches, isLoading: branchesLoading, error: branchesError, refetch: reloadBranches } = trpc.branch.list.useQuery();
 
   const createMutation = trpc.shipment.create.useMutation({
     onSuccess: () => {
@@ -50,10 +50,10 @@ export default function CreateShipment() {
   const hubBranch = selectedBranch?.hubBranchId ? branches?.find(b => b.id === selectedBranch.hubBranchId) : undefined;
 
   return (
-    <div className="max-w-lg mx-auto">
-      <div className="sticky top-0 z-40 bg-[#0F172A] text-white px-4 py-3 flex items-center gap-3">
-        <button onClick={() => navigate(-1)} className="p-1"><ArrowLeft size={20} /></button>
-        <h1 className="text-sm font-bold">Create Shipment</h1>
+    <div className="workflow-page">
+      <div className="workflow-header">
+        <button onClick={() => navigate(-1)} className="workflow-back" aria-label="Go back"><ArrowLeft size={20} /></button>
+        <h1 className="workflow-title">Create Shipment</h1>
       </div>
       <div className="p-4">
         {/* Origin - Always Lagos HQ */}
@@ -65,11 +65,13 @@ export default function CreateShipment() {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="workflow-form space-y-5">
+          <div className="workflow-section-intro"><h2>Where is this shipment going?</h2><p>Choose the receiving office, then add the contact and shipment details.</p></div>
+          {branchesError && <p role="alert" className="text-sm text-red-600">Could not load branch offices. <button type="button" className="underline" onClick={() => void reloadBranches()}>Try again</button></p>}
           <div>
-            <Label>To (Destination Branch) *</Label>
+            <Label htmlFor="destination">To (Destination Branch) *</Label>
             <Select value={destBranchId} onValueChange={setDestBranchId}>
-              <SelectTrigger><SelectValue placeholder="Select destination branch" /></SelectTrigger>
+              <SelectTrigger id="destination" disabled={branchesLoading || !!branchesError}><SelectValue placeholder={branchesLoading ? "Loading offices…" : "Select destination branch"} /></SelectTrigger>
               <SelectContent>
                 {destBranches.map(b => <SelectItem key={b.id} value={String(b.id)}>{b.name} ({b.city})</SelectItem>)}
               </SelectContent>
@@ -80,13 +82,13 @@ export default function CreateShipment() {
               </p>
             )}
           </div>
-          <div><Label>Receiver Name</Label><Input value={receiverName} onChange={e => setReceiverName(e.target.value)} placeholder="Who receives this shipment" /></div>
-          <div><Label>Receiver Phone</Label><Input value={receiverPhone} onChange={e => setReceiverPhone(e.target.value)} placeholder="+234 802 345 6789" /></div>
-          <div><Label>Description</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} placeholder="What's being shipped..." /></div>
+          <div><Label htmlFor="receiver-name">Receiver Name</Label><Input id="receiver-name" value={receiverName} onChange={e => setReceiverName(e.target.value)} placeholder="Who receives this shipment" /></div>
+          <div><Label htmlFor="receiver-phone">Receiver Phone</Label><Input id="receiver-phone" type="tel" value={receiverPhone} onChange={e => setReceiverPhone(e.target.value)} placeholder="+234 802 345 6789" /></div>
+          <div><Label htmlFor="shipment-description">Description</Label><Textarea id="shipment-description" value={description} onChange={e => setDescription(e.target.value)} placeholder="What's being shipped..." /></div>
           <div>
-            <Label>Priority</Label>
+            <Label htmlFor="shipment-priority">Priority</Label>
             <Select value={priority} onValueChange={setPriority}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectTrigger id="shipment-priority"><SelectValue /></SelectTrigger>
               <SelectContent>
                 <SelectItem value="low">Low</SelectItem>
                 <SelectItem value="normal">Normal</SelectItem>
@@ -94,8 +96,8 @@ export default function CreateShipment() {
               </SelectContent>
             </Select>
           </div>
-          {error && <p className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</p>}
-          <Button type="submit" className="w-full bg-[#003B7A] hover:bg-[#002B5A] h-12" disabled={createMutation.isPending}>
+          {error && <p role="alert" className="text-sm text-red-600 bg-red-50 p-2 rounded">{error}</p>}
+          <Button type="submit" className="w-full bg-[#003B7A] hover:bg-[#002B5A] h-12" disabled={createMutation.isPending || branchesLoading || !!branchesError}>
             <Package size={16} className="mr-2" /> {createMutation.isPending ? "Creating..." : "Create Shipment"}
           </Button>
         </form>

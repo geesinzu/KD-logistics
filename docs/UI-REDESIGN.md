@@ -39,3 +39,24 @@ or actual notification delivery.
 Use a separate database and test credentials for any staging server. Do not
 point staging mutations or the reminder scheduler at the production database.
 No staging service or production deployment has been provisioned in Stage 1.
+
+## Stage 2 — shipment screens and Scan presentation
+
+- Shipment cards retain warehouse Label, logistics Assign, SLA, delivery outcome,
+  receiver, item-count, ETA and hub-route information. Detail links are keyboard
+  accessible. Status buttons expose their pressed state.
+- Existing grouped status filters are retained. Pagination now exposes all
+  matching records in pages of 50; search/status changes return to page 1.
+- Removed tab badges calculated from only the first 200 records. The result
+  count now uses the API total for the active filters.
+- Single creation form retains the original payload and hub-route explanation;
+  adds associated field labels and branch loading/error/retry states.
+- Bulk review, warehouse, assignment, details and scanner use the new workflow
+  headers and spacing. Their existing mutation/camera/QR handlers are retained.
+- Bulk creation actions stay above mobile navigation.
+- Chromium with mocked API responses verified search/status/pagination,
+  single/bulk creation payloads, hub display, receiver prefill, warehouse payload,
+  driver assignment, manual lookup and detail navigation. A generated QR image
+  exercises the existing image decoder; camera denial exercises manual fallback.
+- No live mutations, actual notification delivery or physical camera scan has
+  been tested. These remain part of the separate nonproduction phone test.
