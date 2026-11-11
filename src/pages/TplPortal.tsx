@@ -1,3 +1,4 @@
+import "@/components/workspace.css";
 import { useEffect, useState } from "react";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -15,6 +16,7 @@ import { useTplRecentActivity, useTplUnreadNotificationCount, markTplNotificatio
 import { EVENT_ICONS, EVENT_LABELS, formatEventTime } from "@/lib/notificationEvents";
 
 export default function TplPortal() {
+  const [page, setPage] = useState(1);
   const [filter, setFilter] = useState("all");
   const [selectedShipment, setSelectedShipment] = useState<any>(null);
   const [actionType, setActionType] = useState<"confirm" | "update" | "pickup" | "receive_remaining" | null>(null);
@@ -39,7 +41,12 @@ export default function TplPortal() {
   useEffect(() => {
     if (showNotifications) markTplNotificationsSeen(me?.id);
   }, [showNotifications, me?.id]);
-  const { data: shipmentsData, isLoading } = trpc.shipment.listForTpl.useQuery({ page: 1, limit: 50, status: filter === "all" ? undefined : filter === "active" ? undefined : filter });
+  const partnerStatuses: Record<string, string | undefined> = {
+    all: undefined, needs_action: "at_3pl,picked_up_by_3pl,waiting_3pl_pickup",
+    active: "assigned_to_3pl,waiting_driver_pickup,picked_up,tpl_confirmed,in_transit_with_3pl,partially_delivered",
+    done: "delivered,completed,at_hub,onward_in_transit", follow_up: undefined,
+  };
+  const { data: shipmentsData, isLoading, error: shipmentsError, refetch: reloadShipments } = trpc.shipment.listForTpl.useQuery({ page, limit: 50, status: partnerStatuses[filter] });
 
   const { data: trackingHistory } = trpc.shipment.getTrackingHistory.useQuery(
     { shipmentId: expandedId! },
@@ -119,7 +126,7 @@ export default function TplPortal() {
   const myShipments = shipmentsData?.shipments || [];
 
   const activeStatuses = ["assigned_to_3pl", "waiting_driver_pickup", "picked_up", "at_3pl", "waiting_3pl_pickup", "picked_up_by_3pl", "tpl_confirmed", "in_transit_with_3pl", "partially_delivered"];
-  const doneStatuses = ["delivered", "completed"];
+  const doneStatuses = ["delivered", "completed", "at_hub", "onward_in_transit"];
 
   const filtered = myShipments.filter((s: any) => {
     // Needs Action: shipments requiring 3PL to do something (confirm receipt OR pickup)
@@ -143,18 +150,18 @@ export default function TplPortal() {
   }
 
   return (
-    <div className="min-h-screen bg-[#F8FAFC]">
+    <div className="partner-workspace">
       {/* Header */}
-      <div className="bg-[#0F172A] text-white px-4 py-3 flex items-center justify-between">
+      <div className="partner-header">
         <div className="flex items-center gap-2">
-          <Truck size={20} className="text-indigo-400" />
+          <img src="/kedi-logo.png" alt="KEDI Healthcare" className="partner-logo" />
           <div>
             <h1 className="text-sm font-bold">3PL Portal</h1>
-            <p className="text-[10px] text-white/60">{me?.tplName || "Loading..."}</p>
+            <p className="partner-company">{me?.tplName || "Loading..."}</p>
           </div>
         </div>
         <div className="flex items-center gap-1">
-          <button onClick={() => setShowNotifications(true)} className="relative p-1.5 text-white/70 hover:text-white" aria-label="Notifications">
+          <button onClick={() => setShowNotifications(true)} className="partner-icon-button" aria-label="Notifications">
             <Bell size={18} />
             {unreadCount > 0 && (
               <span className="absolute -top-0.5 -right-0.5 min-w-[15px] h-[15px] px-1 rounded-full bg-red-500 text-white text-[8px] font-bold flex items-center justify-center">
@@ -162,20 +169,21 @@ export default function TplPortal() {
               </span>
             )}
           </button>
-          <button onClick={handleLogout} className="p-1.5 text-white/70 hover:text-white"><LogOut size={18} /></button>
+          <button onClick={handleLogout} aria-label="Sign out of 3PL portal" className="partner-icon-button"><LogOut size={18} /></button>
         </div>
       </div>
 
-      <div className="p-4 max-w-lg mx-auto">
+      <div className="partner-content">
+        <div className="partner-intro"><p className="operations-eyebrow">YOUR DELIVERY PARTNER WORKSPACE</p><h2>Every handoff, handled.</h2><p>Receive, move, and deliver your company’s assigned shipments.</p></div>
         {/* Stats */}
         <div className="grid grid-cols-3 gap-3 mb-4">
-          <Card className="border-0 shadow-sm"><CardContent className="p-3 text-center"><Package size={16} className="mx-auto mb-1 text-blue-600" /><p className="text-xl font-bold">{myShipments.length}</p><p className="text-[10px] text-gray-500">Total</p></CardContent></Card>
+          <Card className="border-0 shadow-sm"><CardContent className="p-3 text-center"><Package size={16} className="mx-auto mb-1 text-blue-600" /><p className="text-xl font-bold">{myShipments.length}</p><p className="text-xs text-gray-500">On this page</p></CardContent></Card>
           <Card className="border-0 shadow-sm"><CardContent className="p-3 text-center"><Truck size={16} className="mx-auto mb-1 text-yellow-600" /><p className="text-xl font-bold">{myShipments.filter((s: any) => activeStatuses.includes(s.status)).length}</p><p className="text-[10px] text-gray-500">Active</p></CardContent></Card>
           <Card className="border-0 shadow-sm"><CardContent className="p-3 text-center"><CheckCircle2 size={16} className="mx-auto mb-1 text-green-600" /><p className="text-xl font-bold">{myShipments.filter((s: any) => doneStatuses.includes(s.status)).length}</p><p className="text-[10px] text-gray-500">Done</p></CardContent></Card>
         </div>
 
         {/* Filters */}
-        <div className="flex gap-2 mb-3 overflow-x-auto">
+        <div className="partner-filters">
           {[
             { key: "all", label: "All" },
             { key: "needs_action", label: "Needs Receipt", color: "bg-red-600" },
@@ -183,7 +191,7 @@ export default function TplPortal() {
             { key: "active", label: "In Transit" },
             { key: "done", label: "Completed" },
           ].map(f => (
-            <button key={f.key} onClick={() => setFilter(f.key)}
+            <button key={f.key} aria-pressed={filter === f.key} onClick={() => { setFilter(f.key); setPage(1); }}
               className={`px-3 py-1.5 rounded-full text-xs font-medium whitespace-nowrap transition-colors ${filter === f.key ? (f.color || "bg-indigo-600 text-white") : "bg-gray-100 text-gray-600"}`}>
               {f.label}
             </button>
@@ -191,9 +199,11 @@ export default function TplPortal() {
         </div>
 
         {/* Shipments */}
+        {shipmentsError && <p role="alert" className="operations-message">Could not load assigned shipments. <button className="underline" onClick={() => void reloadShipments()}>Try again</button></p>}
         {isLoading && <p className="text-center py-4 text-gray-400">Loading...</p>}
-        {filtered.length === 0 && <p className="text-center py-8 text-gray-400">No shipments found</p>}
-        <div className="space-y-2">
+        {!isLoading && !shipmentsError && filtered.length === 0 && <p className="text-center py-8 text-gray-400">No shipments found</p>}
+        <p className="partner-result-note">{filter === "follow_up" ? "Follow-ups are shown for the current page. Check other pages for earlier shipments." : "Displayed counts reflect the current page."}</p>
+        <div className="partner-shipment-grid">
           {filtered.map((s: any) => {
             const needsReceipt = ["at_3pl", "picked_up_by_3pl"].includes(s.status);
             const needsPickup = s.status === "waiting_3pl_pickup";
@@ -203,10 +213,10 @@ export default function TplPortal() {
             // Receipt flow, not a backlog to top up later.
             const outstanding = s.tplConfirmedQty != null ? (s.actualItemCount || 0) - s.tplConfirmedQty : 0;
             return (
-              <Card key={s.id} className={`border-0 shadow-sm ${s.needsFollowUp ? "ring-1 ring-red-300" : needsReceipt ? "ring-1 ring-red-200" : needsPickup ? "ring-1 ring-blue-200" : ""}`}>
+              <Card key={s.id} className={`partner-shipment-card border-0 shadow-sm ${s.needsFollowUp ? "ring-1 ring-red-300" : needsReceipt ? "ring-1 ring-red-200" : needsPickup ? "ring-1 ring-blue-200" : ""}`}>
                 <CardContent className="p-3">
                   {/* Row 1: ID + Status */}
-                  <div className="flex items-center justify-between mb-1">
+                  <div className="partner-card-top">
                     <span className="text-sm font-semibold text-[#003B7A]">{s.trackingId || `#${s.id}`}</span>
                     <div className="flex items-center gap-1">
                       {needsReceipt && <span className="text-[9px] bg-red-100 text-red-700 px-1.5 py-0.5 rounded-full font-medium">CONFIRM RECEIPT</span>}
@@ -313,20 +323,21 @@ export default function TplPortal() {
         </div>
       </div>
 
+      {shipmentsData && shipmentsData.total > 50 && <nav className="shipment-pagination partner-pagination" aria-label="Partner shipment pages"><Button variant="outline" disabled={page === 1 || isLoading} onClick={() => setPage(p => p - 1)}>Previous</Button><span>Page {page} of {Math.max(1, Math.ceil(shipmentsData.total / 50))}</span><Button variant="outline" disabled={page >= Math.ceil(shipmentsData.total / 50) || isLoading} onClick={() => setPage(p => p + 1)}>Next</Button></nav>}
       {/* Pickup from Warehouse Dialog */}
       {selectedShipment && actionType === "pickup" && (
         <Dialog open={!!selectedShipment} onOpenChange={() => closeDialog()}>
-          <DialogContent className="max-w-sm">
+          <DialogContent className="workspace-dialog max-w-sm">
             <DialogHeader><DialogTitle>Pickup from Warehouse: {selectedShipment.trackingId}</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <div className="bg-blue-50 p-2 rounded text-xs text-blue-800">
                 <strong>Pickup:</strong> {selectedShipment.actualItemCount || 0} items from Lagos HQ for delivery to {selectedShipment.destinationBranch}
               </div>
               <div>
-                <Label>Quantity Picked Up *</Label>
-                <Input type="number" value={receivedQty} onChange={e => setReceivedQty(e.target.value)} placeholder="How many items picked up?" />
+                <Label htmlFor="partner-field-1">Quantity Picked Up *</Label>
+                <Input id="partner-field-1" type="number" value={receivedQty} onChange={e => setReceivedQty(e.target.value)} placeholder="How many items picked up?" />
               </div>
-              <div><Label>Notes</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any observations..." /></div>
+              <div><Label htmlFor="partner-field-2">Notes</Label><Textarea id="partner-field-2" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any observations..." /></div>
               <Button className="w-full bg-blue-600 hover:bg-blue-700" onClick={() => {
                 if (!selectedShipment || !receivedQty) return;
                 pickupMutation.mutate({
@@ -345,20 +356,20 @@ export default function TplPortal() {
       {/* Confirm Receipt Dialog */}
       {selectedShipment && actionType === "confirm" && (
         <Dialog open={!!selectedShipment} onOpenChange={() => closeDialog()}>
-          <DialogContent className="max-w-sm">
+          <DialogContent className="workspace-dialog max-w-sm">
             <DialogHeader><DialogTitle>Confirm Receipt: {selectedShipment.trackingId}</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <div className="bg-yellow-50 p-2 rounded text-xs text-yellow-800">
                 <strong>Expected:</strong> {selectedShipment.actualItemCount || 0} items from Lagos HQ
               </div>
               <div>
-                <Label>Quantity Received *</Label>
-                <Input type="number" value={receivedQty} onChange={e => setReceivedQty(e.target.value)} placeholder="How many items received?" />
+                <Label htmlFor="partner-field-3">Quantity Received *</Label>
+                <Input id="partner-field-3" type="number" value={receivedQty} onChange={e => setReceivedQty(e.target.value)} placeholder="How many items received?" />
               </div>
               <div>
-                <Label>Condition *</Label>
+                <Label htmlFor="partner-field-4">Condition *</Label>
                 <Select value={condition} onValueChange={setCondition}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectTrigger id="partner-field-4"><SelectValue /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="good">All Good</SelectItem>
                     <SelectItem value="partial">Partial/Missing</SelectItem>
@@ -366,7 +377,7 @@ export default function TplPortal() {
                   </SelectContent>
                 </Select>
               </div>
-              <div><Label>Notes</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any issues?" /></div>
+              <div><Label htmlFor="partner-field-5">Notes</Label><Textarea id="partner-field-5" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Any issues?" /></div>
               <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleConfirm} disabled={confirmMutation.isPending || !receivedQty}>
                 {confirmMutation.isPending ? "Confirming..." : "Confirm Receipt"}
               </Button>
@@ -382,7 +393,7 @@ export default function TplPortal() {
           : 0;
         return (
           <Dialog open={!!selectedShipment} onOpenChange={() => closeDialog()}>
-            <DialogContent className="max-w-sm">
+            <DialogContent className="workspace-dialog max-w-sm">
               <DialogHeader><DialogTitle>Receive Remaining Items: {selectedShipment.trackingId}</DialogTitle></DialogHeader>
               <div className="space-y-3">
                 <div className="bg-amber-50 p-2 rounded text-xs text-amber-800">
@@ -390,11 +401,11 @@ export default function TplPortal() {
                   <strong>Outstanding:</strong> {outstanding} item{outstanding === 1 ? "" : "s"} not yet received.
                 </div>
                 <div>
-                  <Label>Additional Items Received *</Label>
-                  <Input type="number" min={1} max={outstanding} value={additionalQty} onChange={e => setAdditionalQty(e.target.value)} placeholder="How many arrived now?" />
+                  <Label htmlFor="partner-field-6">Additional Items Received *</Label>
+                  <Input id="partner-field-6" type="number" min={1} max={outstanding} value={additionalQty} onChange={e => setAdditionalQty(e.target.value)} placeholder="How many arrived now?" />
                   <p className="text-[10px] text-gray-400 mt-1">Max: {outstanding} (can't exceed the outstanding amount)</p>
                 </div>
-                <div><Label>Notes</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Driver brought it the next day" /></div>
+                <div><Label htmlFor="partner-field-7">Notes</Label><Textarea id="partner-field-7" value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Driver brought it the next day" /></div>
                 <Button className="w-full bg-green-600 hover:bg-green-700" onClick={handleReceiveRemaining}
                   disabled={receiveRemainingMutation.isPending || !additionalQty || Number(additionalQty) > outstanding || Number(additionalQty) < 1}>
                   {receiveRemainingMutation.isPending ? "Recording..." : "Record Received Items"}
@@ -408,13 +419,13 @@ export default function TplPortal() {
       {/* Update Status Dialog */}
       {selectedShipment && actionType === "update" && (
         <Dialog open={!!selectedShipment} onOpenChange={() => closeDialog()}>
-          <DialogContent className="max-w-sm">
+          <DialogContent className="workspace-dialog max-w-sm">
             <DialogHeader><DialogTitle>Update: {selectedShipment.trackingId}</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <div>
-                <Label>Update Type *</Label>
+                <Label htmlFor="partner-field-8">Update Type *</Label>
                 <Select value={updateType} onValueChange={setUpdateType}>
-                  <SelectTrigger><SelectValue placeholder="What happened?" /></SelectTrigger>
+                  <SelectTrigger id="partner-field-8"><SelectValue placeholder="What happened?" /></SelectTrigger>
                   <SelectContent>
                     <SelectItem value="location_update">Location Update (In Transit)</SelectItem>
                     <SelectItem value="sorting_update">Sorting</SelectItem>
@@ -426,19 +437,19 @@ export default function TplPortal() {
                 </Select>
               </div>
               <div>
-                <Label>Current Location *</Label>
-                <Input value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g., Benin Expressway" />
+                <Label htmlFor="partner-field-9">Current Location *</Label>
+                <Input id="partner-field-9" value={location} onChange={e => setLocation(e.target.value)} placeholder="e.g., Benin Expressway" />
               </div>
               {updateType === "partial_delivery" && (
                 <div>
-                  <Label>Quantity Delivered Now</Label>
-                  <Input type="number" value={deliveredQty} onChange={e => setDeliveredQty(e.target.value)} placeholder={`Of ${selectedShipment.actualItemCount || 0} total`} />
+                  <Label htmlFor="partner-field-10">Quantity Delivered Now</Label>
+                  <Input id="partner-field-10" type="number" value={deliveredQty} onChange={e => setDeliveredQty(e.target.value)} placeholder={`Of ${selectedShipment.actualItemCount || 0} total`} />
                 </div>
               )}
               {updateType === "delay_reported" && (
                 <div>
-                  <Label>New Estimated Delivery Date</Label>
-                  <Input
+                  <Label htmlFor="partner-field-11">New Estimated Delivery Date</Label>
+                  <Input id="partner-field-11"
                     type="date"
                     value={newDeliveryDate}
                     onChange={e => setNewDeliveryDate(e.target.value)}
@@ -449,7 +460,7 @@ export default function TplPortal() {
                   </p>
                 </div>
               )}
-              <div><Label>Notes</Label><Textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Additional info..." /></div>
+              <div><Label htmlFor="partner-field-12">Notes</Label><Textarea id="partner-field-12" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Additional info..." /></div>
               <Button className="w-full bg-indigo-600 hover:bg-indigo-700" onClick={handleUpdate} disabled={updateMutation.isPending || !updateType || !location}>
                 {updateMutation.isPending ? "Updating..." : "Submit Update"}
               </Button>
@@ -478,7 +489,7 @@ export default function TplPortal() {
 
       {/* Notifications Dialog */}
       <Dialog open={showNotifications} onOpenChange={setShowNotifications}>
-        <DialogContent className="max-w-sm max-h-[80vh] flex flex-col">
+        <DialogContent className="workspace-dialog max-w-sm max-h-[80vh] flex flex-col">
           <DialogHeader><DialogTitle>Notifications</DialogTitle></DialogHeader>
 
           {notSupportedReason && (

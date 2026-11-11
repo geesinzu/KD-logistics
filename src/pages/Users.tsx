@@ -22,7 +22,7 @@ export default function Users() {
   const [editingStaff, setEditingStaff] = useState<{ id: number; name: string; phone: string; email: string; branchId: string; role: string } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
-  const [page] = useState(1);
+  const [page, setPage] = useState(1);
 
   // KEDI user dialog
   const [showAdd, setShowAdd] = useState(false);
@@ -48,7 +48,7 @@ export default function Users() {
   }
 
   const utils = trpc.useUtils();
-  const { data, isLoading } = trpc.user.list.useQuery({ page, limit: 20, search: search || undefined, status: statusFilter || undefined });
+  const { data, isLoading, error: usersError, refetch: reloadUsers } = trpc.user.list.useQuery({ page, limit: 20, search: search || undefined, status: statusFilter && statusFilter !== "all" ? statusFilter : undefined });
   const { data: branchesData, isLoading: branchesLoading, error: branchesError, refetch: refetchBranches } = trpc.branch.list.useQuery();
   const { data: tplList } = trpc.tpl.list.useQuery();
   const { data: tplUsersList } = trpc.tpl.listUsers.useQuery(undefined, { enabled: showAdd3pl });
@@ -86,10 +86,10 @@ export default function Users() {
   };
 
   return (
-    <div className="p-4 max-w-lg mx-auto">
+    <div className="management-page staff-management">
       {/* Header with two buttons */}
-      <div className="flex items-center justify-between mb-3">
-        <h1 className="text-lg font-bold text-[#1E293B]">Users</h1>
+      <div className="management-heading">
+        <h1 className="management-title">Users</h1>
         <div className="flex gap-2">
           <Button size="sm" className="bg-[#003B7A] hover:bg-[#002B5A] h-9" onClick={() => setShowAdd(true)}>
             <UserPlus size={14} className="mr-1" /> Add User
@@ -104,9 +104,9 @@ export default function Users() {
       <div className="flex gap-2 mb-3">
         <div className="relative flex-1">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" />
-          <Input className="pl-8 h-9 text-sm" placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} />
+          <Input className="pl-8 h-9 text-sm" placeholder="Search..." value={search} aria-label="Search staff" onChange={e => { setSearch(e.target.value); setPage(1); }} />
         </div>
-        <Select value={statusFilter} onValueChange={setStatusFilter}>
+        <Select value={statusFilter} onValueChange={v => { setStatusFilter(v); setPage(1); }}>
           <SelectTrigger className="w-28 h-9 text-xs"><SelectValue placeholder="Status" /></SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All</SelectItem>
@@ -118,6 +118,7 @@ export default function Users() {
       </div>
 
       {/* User list */}
+      {usersError && <p role="alert" className="operations-message">Could not load staff. <button className="underline" onClick={() => void reloadUsers()}>Try again</button></p>}
       {isLoading && <p className="text-center py-4 text-gray-400">Loading...</p>}
       <div className="space-y-2">
         {data?.users?.length === 0 && <p className="text-center py-8 text-gray-400">No users found</p>}
@@ -164,9 +165,11 @@ export default function Users() {
         ))}
       </div>
 
+      {data && data.total > 20 && <nav className="shipment-pagination" aria-label="Staff pages"><Button variant="outline" disabled={page === 1 || isLoading} onClick={() => setPage(p => p - 1)}>Previous</Button><span>Page {page} of {Math.ceil(data.total / 20)}</span><Button variant="outline" disabled={page >= Math.ceil(data.total / 20) || isLoading} onClick={() => setPage(p => p + 1)}>Next</Button></nav>}
+
       {editingStaff && (
         <Dialog open onOpenChange={open => { if (!open && !editStaffMutation.isPending) setEditingStaff(null); }}>
-          <DialogContent>
+          <DialogContent className="workspace-dialog">
             <DialogHeader><DialogTitle>Edit Staff</DialogTitle></DialogHeader>
             <form className="space-y-3" onSubmit={e => {
               e.preventDefault();
@@ -197,7 +200,7 @@ export default function Users() {
       {/* ── Add KEDI User Dialog ── */}
       {showAdd && (
         <Dialog open={showAdd} onOpenChange={setShowAdd}>
-          <DialogContent>
+          <DialogContent className="workspace-dialog">
             <DialogHeader><DialogTitle>Add KEDI User</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <div><Label>Name</Label><Input value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })} placeholder="Full name" /></div>
@@ -240,7 +243,7 @@ export default function Users() {
       {/* ── Add 3PL Staff Dialog ── */}
       {showAdd3pl && (
         <Dialog open={showAdd3pl} onOpenChange={setShowAdd3pl}>
-          <DialogContent>
+          <DialogContent className="workspace-dialog">
             <DialogHeader><DialogTitle>Add 3PL Staff</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <p className="text-xs text-gray-500 bg-blue-50 p-2 rounded">This creates a login account for 3PL partner staff to access the 3PL Portal.</p>
@@ -302,7 +305,7 @@ export default function Users() {
       {/* ── Review Pending Signup ── */}
       {reviewUser && (
         <Dialog open={!!reviewUser} onOpenChange={(open) => !open && setReviewUser(null)}>
-          <DialogContent>
+          <DialogContent className="workspace-dialog">
             <DialogHeader><DialogTitle>Review Request</DialogTitle></DialogHeader>
             <div className="space-y-3">
               <div className="bg-gray-50 rounded-lg p-3">

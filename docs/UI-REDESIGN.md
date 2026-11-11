@@ -60,3 +60,45 @@ No staging service or production deployment has been provisioned in Stage 1.
   exercises the existing image decoder; camera denial exercises manual fallback.
 - No live mutations, actual notification delivery or physical camera scan has
   been tested. These remain part of the separate nonproduction phone test.
+
+## Stages 3–4 — staff management, identity and partner portal
+
+- Branches, Users, Profile, notifications, driver deliveries and reports now use
+  the shared visual system. Existing edit/approval/upload/notification controls
+  and report calculations/export templates are retained.
+- Users has working status filtering (including All), search, and pagination;
+  Super Admin staff/branch edits retain their existing API restrictions.
+- Staff login, registration and separate 3PL login share a responsive identity
+  frame with the original KEDI logo. Endpoints, token storage and redirect
+  destinations are unchanged.
+- Partner portal retains pickup, receipt, partial/damaged condition, remaining
+  intake, location/status updates, delivery quantities, delay/ETA, history,
+  photos, notifications, push preferences and logout controls.
+- Partner filter labels map to actual API statuses rather than sending labels
+  like `done` to the database. Hub/onward shipments appear as completed for the
+  3PL, whose delivery obligation ends at the hub. This changes filtering, not
+  shipment mutation/state-transition rules.
+- Partner pagination exposes additional pages of 50 records. Displayed counts
+  explicitly describe the current page. Needs Follow-up remains a client-side
+  filter of the current page, with a visible explanation; it is not a global
+  backlog count.
+- Partner and staff navigation remain separate; the partner portal does not
+  render staff management links.
+
+## Verification recorded for the complete preview
+
+All 36 existing API tests, production build and focused lint checks passed.
+Type checking still reports pre-existing missing declarations for `web-push`.
+Mocked Chromium smoke tests cover desktop/mobile navigation and role queues,
+monthly dashboard requests, shipment filters/pagination, single/bulk payloads,
+warehouse/assignment payloads, manual QR lookup, generated QR image decoding,
+camera-denied fallback, staff/partner login, registration, staff transfer,
+branch editing, report CSV export, and partner pickup/partial receipt/remaining
+items/partial delivery/delay/ETA/history/filters/pagination/notifications. The
+tests check payloads and browser rendering; they do not prove live persistence.
+
+This branch is ready for gradual review, not a verified production rollout.
+Before merging, test physical camera scanning, printing/PDF output on target
+devices, push delivery, and the complete delivery/acknowledgement flow against a
+separate test database with staff and partner test accounts. Keep the production
+branch, database and deployment configuration untouched during those tests.
