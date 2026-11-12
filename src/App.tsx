@@ -16,7 +16,7 @@ import QrScanner from "./pages/QrScanner";
 import BranchOffices from "./pages/BranchOffices";
 import Users from "./pages/Users";
 import Profile from "./pages/Profile";
-import HistoricalAcknowledgements from "./pages/HistoricalAcknowledgements";
+import ActivityReport from "./pages/ActivityReport";
 import Reports from "./pages/Reports";
 import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
@@ -58,10 +58,10 @@ export default function App() {
         <Route path="/scan" element={<ProtectedRoute><QrScanner /></ProtectedRoute>} />
         <Route path="/branches" element={<ProtectedRoute requiredRoles={["super_admin","admin"]}><BranchOffices /></ProtectedRoute>} />
         <Route path="/users" element={<ProtectedRoute requiredRoles={["super_admin","admin"]}><Users /></ProtectedRoute>} />
+        <Route path="/reports/activity" element={<ProtectedRoute requiredRoles={["super_admin","admin","logistics_officer","viewer"]}><ActivityReport /></ProtectedRoute>} />
         <Route path="/reports" element={<ProtectedRoute requiredRoles={["super_admin","admin","logistics_officer","viewer"]}><Reports /></ProtectedRoute>} />
         <Route path="/notifications" element={<ProtectedRoute><Notifications /></ProtectedRoute>} />
         <Route path="/profile" element={<ProtectedRoute><Profile /></ProtectedRoute>} />
-        <Route path="/maintenance/historical-acknowledgements" element={<ProtectedRoute requiredRoles={["super_admin"]}><HistoricalAcknowledgements /></ProtectedRoute>} />
       </Route>
     </Routes>
   );

@@ -12,7 +12,7 @@ import { resizeImage } from "@/lib/resizeImage";
 
 export default function Profile() {
   const navigate = useNavigate();
-  const { user, logout, isAdmin, isSuperAdmin } = useAuth();
+  const { user, logout, isAdmin } = useAuth();
   const utils = trpc.useUtils();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
@@ -193,7 +193,6 @@ export default function Profile() {
       </Card>
 
       {/* Logout */}
-      {isSuperAdmin && <Button variant="outline" className="w-full mb-4" onClick={() => navigate("/maintenance/historical-acknowledgements")}>Temporary tool: historical acknowledgements</Button>}
       <Button variant="destructive" className="w-full h-12" onClick={logout}>
         <LogOut size={16} className="mr-2" /> Logout
       </Button>
