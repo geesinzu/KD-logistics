@@ -4,6 +4,7 @@ import { branchRouter } from "./branch-router";
 import { shipmentRouter } from "./shipment-router";
 import { tplRouter } from "./tpl-router";
 import { pushRouter } from "./push-router";
+import { maintenanceRouter } from "./maintenance-router";
 import { createRouter, publicQuery } from "./middleware";
 import { getDb } from "./queries/connection";
 import { users, branches, thirdPartyLogistics } from "@db/schema";
@@ -34,6 +35,7 @@ export const appRouter = createRouter({
   shipment: shipmentRouter,
   tpl: tplRouter,
   push: pushRouter,
+  maintenance: maintenanceRouter,
 });
 
 export type AppRouter = typeof appRouter;

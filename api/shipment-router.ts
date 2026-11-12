@@ -2175,7 +2175,9 @@ export const shipmentRouter = createRouter({
       }
 
       const events = await db.select().from(trackingEvents)
-        .where(eventsCondition)
+        // Historical corrections remain in tracking history, never in the bell
+        // or unread count. Keep this exclusion after removing the temporary tool.
+        .where(and(eventsCondition, sql`(${trackingEvents.actorRole} IS NULL OR ${trackingEvents.actorRole} <> 'system_backfill')`))
         .orderBy(desc(trackingEvents.id))
         .limit(limit);
 
