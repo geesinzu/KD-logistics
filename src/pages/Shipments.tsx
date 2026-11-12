@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { Link, useNavigate } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/providers/trpc";
 import { Card, CardContent } from "@/components/ui/card";
@@ -7,56 +6,38 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { STATUS_LABELS, STATUS_COLORS } from "@contracts/constants";
+import { SHIPMENT_FILTERS, shipmentListFilters, shipmentMonthLabel, shipmentDateLabel } from "@contracts/shipment-navigation";
 import { Plus, Search, QrCode, Truck, Clock, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 export default function Shipments() {
   const navigate = useNavigate();
   const { user } = useAuth();
   const role = user?.role;
-  const [search, setSearch] = useState("");
-  const [status, setStatus] = useState("");
+  const [params, setParams] = useSearchParams();
+  const { month: selectedMonth, status: selectedStatus, search, page } = shipmentListFilters(params);
+  const status = selectedStatus.key;
+  function updateFilter(key: string, value: string) {
+    setParams(previous => {
+      const next = new URLSearchParams(previous);
+      if (value) next.set(key, value); else next.delete(key);
+      if (key !== "page") next.delete("page");
+      return next;
+    }, { replace: key === "q" });
+  }
+  const [year, month] = selectedMonth === "all" ? [] : selectedMonth.split("-").map(Number);
+  const monthLabel = shipmentMonthLabel(selectedMonth);
 
   const canCreate = role && ["super_admin", "admin", "shipment_creator", "logistics_officer"].includes(role);
   const canWarehouse = role && ["super_admin", "admin", "warehouse_supply"].includes(role);
   const canLogistics = role && ["super_admin", "admin", "logistics_officer"].includes(role);
-  const [page, setPage] = useState(1);
-
-  // Status group mapping: tab label → comma-separated DB statuses
-  const STATUS_GROUPS: Record<string, string> = {
-    "": "",
-    "created": "created",
-    "labeled": "labeled",
-    "assigned_to_3pl": "waiting_driver_pickup,waiting_3pl_pickup,at_3pl",
-    "picked_up": "picked_up,picked_up_by_3pl",
-    "in_transit_with_3pl": "tpl_confirmed,in_transit_with_3pl,partially_delivered",
-    "at_hub_onward": "at_hub,onward_in_transit",
-    "delivered": "delivered",
-    "completed": "completed",
-    "cancelled": "cancelled",
-  };
-  const TAB_LABELS: Record<string, string> = {
-    "": "All",
-    "created": "Created",
-    "labeled": "Labeled",
-    "assigned_to_3pl": "Assigned to 3PL",
-    "picked_up": "Picked Up",
-    "in_transit_with_3pl": "In Transit",
-    "at_hub_onward": "At Hub / Onward",
-    "delivered": "Delivered",
-    "completed": "Completed",
-    "cancelled": "Cancelled",
-  };
-  const tabKeys = Object.keys(STATUS_GROUPS);
-
-  // Must be AFTER STATUS_GROUPS definition
-  const apiStatus = status ? STATUS_GROUPS[status] : undefined;
-  const { data, isLoading, error, refetch } = trpc.shipment.list.useQuery({ page, limit: 50, status: apiStatus, search: search || undefined });
+  const apiStatus = selectedStatus.statuses.length ? selectedStatus.statuses.join(",") : undefined;
+  const { data, isLoading, error, refetch } = trpc.shipment.list.useQuery({ page, limit: 50, status: apiStatus, search: search || undefined, year, month });
   const pageCount = Math.max(1, Math.ceil((data?.total ?? 0) / 50));
 
   return (
     <div className="shipment-workspace">
       <div className="operations-heading">
-        <div><p className="operations-eyebrow">EVERY SHIPMENT, IN SIGHT</p><h1>Shipments</h1><p>Follow each handoff, from the warehouse to its destination.</p></div>
+        <div><p className="operations-eyebrow">EVERY SHIPMENT, IN SIGHT</p><h1>{status ? `${selectedStatus.label} shipments` : "Shipments"} · {monthLabel}</h1><p>Showing shipments by their creation month, not their delivery or completion month.</p></div>
         {canCreate && (
           <Button size="sm" className="bg-navy hover:bg-[#0F2039] h-11 rounded-lg font-semibold" onClick={() => navigate("/shipments/create")}>
             <Plus size={14} className="mr-1" /> New shipment
@@ -64,19 +45,27 @@ export default function Shipments() {
         )}
       </div>
 
+      <div className="shipment-month-filter">
+        <label htmlFor="shipment-month">Shipments created in
+          <input id="shipment-month" type="month" min="2000-01" max="2100-12" value={selectedMonth === "all" ? "" : selectedMonth} onChange={e => updateFilter("month", e.target.value || "all")} />
+        </label>
+        <Button variant="outline" aria-pressed={selectedMonth === "all"} onClick={() => updateFilter("month", "all")}>All months</Button>
+        <span>{monthLabel} · Nigeria time</span>
+      </div>
+
       {/* Search */}
       <div className="shipment-search">
         <Search size={16} className="absolute left-3 top-1/2 -translate-y-1/2 text-ink-soft" />
         <label className="sr-only" htmlFor="shipment-search">Search shipments</label>
-        <Input id="shipment-search" className="pl-9 h-11 rounded-2xl border-[#E8E4DC] bg-white" placeholder="Search by tracking ID..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }} />
+        <Input id="shipment-search" className="pl-9 h-11 rounded-2xl border-[#E8E4DC] bg-white" placeholder="Search by tracking ID..." value={search} onChange={e => { updateFilter("q", e.target.value); }} />
       </div>
 
       {/* Status filters */}
       <div className="shipment-filters" aria-label="Filter shipments by status">
-        {tabKeys.map(key => (
-          <button key={key} aria-pressed={status === key} onClick={() => { setStatus(key); setPage(1); }}
+        {SHIPMENT_FILTERS.map(({ key, label }) => (
+          <button key={key} aria-pressed={status === key} onClick={() => { updateFilter("status", key); }}
             className={`px-3 py-1.5 rounded-full text-xs whitespace-nowrap font-semibold transition-colors inline-flex items-center gap-1 ${status === key ? "bg-navy text-white" : "bg-white border border-[#E8E4DC] text-ink-soft hover:bg-navy-soft"}`}>
-            {TAB_LABELS[key] || "All"}
+            {label}
 
           </button>
         ))}
@@ -85,9 +74,9 @@ export default function Shipments() {
       {/* Shipments list */}
       {isLoading && <div role="status" className="operations-message">Loading shipments…</div>}
       {error && <div role="alert" className="operations-message">Could not load shipments. <button className="underline" onClick={() => void refetch()}>Try again</button></div>}
-      {data && <p className="shipment-result-count">{data.total} matching shipment{data.total === 1 ? "" : "s"}</p>}
+      {data && <p className="shipment-result-count">{data.total} matching shipment{data.total === 1 ? "" : "s"} · Created: {monthLabel}</p>}
       <div className="shipment-list-grid">
-        {data?.shipments?.length === 0 && <div className="text-center py-8 text-ink-soft">No shipments found</div>}
+        {data?.shipments?.length === 0 && <div className="text-center py-8 text-ink-soft">No shipments found for {monthLabel.toLowerCase()}{status ? ` under ${selectedStatus.label}` : ""}. Choose another month or All months.</div>}
         {data?.shipments?.map(s => (
           <Card key={s.id} className="shipment-card">
             <CardContent className="p-3.5">
@@ -99,6 +88,8 @@ export default function Shipments() {
                   </div>
                   <p className="text-xs text-ink-soft">To: {s.destinationBranch}{s.hubBranchName ? ` (via ${s.hubBranchName} hub)` : ""}</p>
                   <p className="text-xs text-ink-soft">{s.actualItemCount || s.estimatedItemCount || 0} items {s.receiverName ? `- ${s.receiverName}` : ""}</p>
+                  <p className="text-xs text-ink-soft mt-1">Created: {shipmentDateLabel(s.createdAt)}</p>
+                  {s.status === "completed" && <p className="text-xs text-ink-soft">Completed: {shipmentDateLabel(s.completedAt)}</p>}
                   {s.slaStatus && s.slaStatus !== "no_eta" && (
                     <div className={`flex items-center gap-1 text-xs mt-0.5 font-semibold ${
                       s.slaStatus === "overdue" ? "text-[#B3261E]" :
@@ -148,7 +139,7 @@ export default function Shipments() {
           </Card>
         ))}
       </div>
-      {data && pageCount > 1 && <nav className="shipment-pagination" aria-label="Shipment pages"><Button variant="outline" disabled={page === 1 || isLoading} onClick={() => setPage(p => p - 1)}>Previous</Button><span>Page {page} of {pageCount}</span><Button variant="outline" disabled={page >= pageCount || isLoading} onClick={() => setPage(p => p + 1)}>Next</Button></nav>}
+      {data && pageCount > 1 && <nav className="shipment-pagination" aria-label="Shipment pages"><Button variant="outline" disabled={page === 1 || isLoading} onClick={() => updateFilter("page", String(page - 1))}>Previous</Button><span>Page {page} of {pageCount}</span><Button variant="outline" disabled={page >= pageCount || isLoading} onClick={() => updateFilter("page", String(page + 1))}>Next</Button></nav>}
     </div>
   );
 }
