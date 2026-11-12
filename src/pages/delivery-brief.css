@@ -1417,7 +1417,7 @@
   }
   .delivery-brief .view {
     display: block !important;
-    break-before: page;
+    break-before: auto;
   }
   .delivery-brief .view:first-of-type {
     break-before: auto;
@@ -1446,7 +1446,7 @@
   }
   .delivery-brief .panel {
     margin-bottom: 16px;
-    break-inside: avoid;
+    break-inside: auto;
   }
   .delivery-brief .metric {
     break-inside: avoid;
@@ -1623,7 +1623,7 @@
     white-space: normal;
   }
   .delivery-brief .view {
-    break-before: page;
+    break-before: auto;
   }
   .delivery-brief #brief-overview {
     break-before: auto;
@@ -1657,4 +1657,94 @@
 }
 .delivery-brief .brief p {
   font-size: 12px;
+}
+
+/* Keep print overrides last, after responsive screen spacing and typography. */
+@media print {
+  body:has(.delivery-brief) > :not(#root),
+  body:has(.delivery-brief) .workspace-skip,
+  body:has(.delivery-brief) [data-sonner-toaster],
+  .delivery-brief .view-intro button {
+    display: none !important;
+  }
+  body:has(.delivery-brief) .kedi-workspace,
+  body:has(.delivery-brief) .workspace-body,
+  body:has(.delivery-brief) .workspace-content {
+    min-height: 0;
+    height: auto;
+    overflow: visible;
+  }
+  .delivery-brief .brief-main {
+    padding: 0;
+  }
+  .delivery-brief .view,
+  .delivery-brief .panel,
+  .delivery-brief .table-scroll {
+    break-inside: auto;
+    overflow: visible;
+  }
+  .delivery-brief .view-intro,
+  .delivery-brief .panel-head,
+  .delivery-brief h2 {
+    break-inside: avoid;
+    break-after: avoid;
+  }
+  .delivery-brief .view-intro {
+    margin: 16px 0 8px;
+  }
+  .delivery-brief .view-intro h2 {
+    font-size: 15pt;
+  }
+  .delivery-brief .panel {
+    margin-bottom: 10px;
+  }
+  .delivery-brief .panel-head {
+    padding: 12px 14px 8px;
+  }
+  .delivery-brief .brief,
+  .delivery-brief .metric,
+  .delivery-brief .stage,
+  .delivery-brief .action-row,
+  .delivery-brief .journey-note {
+    break-inside: avoid;
+  }
+  .delivery-brief .brief {
+    grid-template-columns: minmax(0, 1fr) 160px;
+    padding: 14px;
+    margin-bottom: 12px;
+  }
+  .delivery-brief .brief::after {
+    display: none;
+  }
+  .delivery-brief .metric {
+    padding: 12px;
+  }
+  .delivery-brief .action-row {
+    padding: 10px 14px;
+  }
+  .delivery-brief table {
+    width: 100%;
+    white-space: normal;
+  }
+  .delivery-brief thead {
+    display: table-header-group;
+    break-inside: avoid;
+    break-after: avoid;
+  }
+  .delivery-brief tbody {
+    break-inside: auto;
+  }
+  .delivery-brief tr {
+    break-inside: avoid;
+  }
+  .delivery-brief th,
+  .delivery-brief td,
+  .delivery-brief .wide-table td {
+    padding: 6px 8px;
+    font-size: 8pt;
+    line-height: 1.4;
+  }
+  .delivery-brief .wide-table .cell-button {
+    font-size: inherit;
+  }
 }
