@@ -4,7 +4,7 @@ import { TRPCError } from "@trpc/server";
 import { eq, desc, and, or, sql, inArray, gte, lt, lte, like } from "drizzle-orm";
 import { shipments, trackingEvents, users, branches, thirdPartyLogistics, activityLog } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, authedQuery, adminQuery, superAdminQuery, branchManagerQuery, branchOnlyQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
+import { createRouter, authedQuery, kediQuery, adminQuery, superAdminQuery, branchManagerQuery, branchOnlyQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
 import { SHIPMENT_STATUSES, STATUS_LABELS, IN_TRANSIT_STATUSES, TPL_DONE_STATUSES, ONWARD_STATUSES } from "@contracts/constants";
 import {
   notifyShipmentCreated, notifyWarehouseProcessed, notify3plAssigned, notifyDriverAssigned,
@@ -18,6 +18,7 @@ import {
   finalAcknowledgeGuard, markReceivedGuard, receiptOutcome, receivedAtError,
 } from "./lib/shipment-flow";
 import { checkTplUpdateReminders } from "./lib/reminders";
+import { shipmentMonthRange, hasCompleteShipmentMonth, shipmentFilter } from "@contracts/shipment-navigation";
 
 // A branch manager sees a shipment if it is going to their branch OR routed
 // through it as a hub. One definition, so the list, stats, attention counts
@@ -1109,16 +1110,16 @@ export const shipmentRouter = createRouter({
     }),
 
   // ── LIST SHIPMENTS ──
-  list: authedQuery
+  list: kediQuery
     .input(z.object({
       page: z.number().default(1),
       limit: z.number().default(20),
       status: z.string().optional(),
       search: z.string().optional(),
       tplId: z.number().optional(),
-      year: z.number().optional(),
-      month: z.number().optional(),
-    }).optional())
+      year: z.number().int().min(2000).max(2100).optional(),
+      month: z.number().int().min(1).max(12).optional(),
+    }).refine(hasCompleteShipmentMonth, { message: "Choose both a month and year, or leave both empty for all months" }).optional())
     .query(async ({ input, ctx }) => {
       const db = getDb();
       const page = input?.page ?? 1;
@@ -1145,16 +1146,17 @@ export const shipmentRouter = createRouter({
       }
       if (input?.tplId) conditions.push(eq(shipments.tplId, input.tplId));
       if (input?.year && input?.month) {
-        conditions.push(gte(shipments.createdAt, new Date(input.year, input.month - 1, 1)));
-        conditions.push(lt(shipments.createdAt, new Date(input.year, input.month, 1)));
+        const range = shipmentMonthRange(input.year, input.month);
+        conditions.push(gte(shipments.createdAt, range.start));
+        conditions.push(lt(shipments.createdAt, range.end));
       }
 
       if (ctx.user?.role === "driver") {
         conditions.push(eq(shipments.assignedDriverId, ctx.user.id));
       }
       // Branch managers see shipments to their branch or routed through it
-      if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
-        conditions.push(branchScope(ctx.user.branchId));
+      if (ctx.user?.role === "branch_manager") {
+        conditions.push(ctx.user.branchId ? branchScope(ctx.user.branchId) : sql`1 = 0`);
       }
 
       const where = conditions.length > 0 ? and(...conditions) : undefined;
@@ -1510,19 +1512,20 @@ export const shipmentRouter = createRouter({
     }),
 
   // ── STATS ──
-  stats: authedQuery
-    .input(z.object({ year: z.number().optional(), month: z.number().optional() }).optional())
+  stats: kediQuery
+    .input(z.object({ year: z.number().int().min(2000).max(2100).optional(), month: z.number().int().min(1).max(12).optional() }).refine(hasCompleteShipmentMonth, { message: "Choose both a month and year, or leave both empty for all months" }).optional())
     .query(async ({ ctx, input }) => {
       const db = getDb();
       const conditions = [];
       if (input?.year && input?.month) {
-        conditions.push(gte(shipments.createdAt, new Date(input.year, input.month - 1, 1)));
-        conditions.push(lt(shipments.createdAt, new Date(input.year, input.month, 1)));
+        const range = shipmentMonthRange(input.year, input.month);
+        conditions.push(gte(shipments.createdAt, range.start));
+        conditions.push(lt(shipments.createdAt, range.end));
       }
       if (ctx.user?.role === "driver") {
         conditions.push(eq(shipments.assignedDriverId, ctx.user.id));
-      } else if (ctx.user?.role === "branch_manager" && ctx.user?.branchId) {
-        conditions.push(branchScope(ctx.user.branchId));
+      } else if (ctx.user?.role === "branch_manager") {
+        conditions.push(ctx.user.branchId ? branchScope(ctx.user.branchId) : sql`1 = 0`);
       }
 
       const filtered = await db.select().from(shipments).where(conditions.length > 0 ? and(...conditions) : undefined);
@@ -1530,9 +1533,9 @@ export const shipmentRouter = createRouter({
         total: filtered.length,
         created: filtered.filter(s => s.status === "created").length,
         labeled: filtered.filter(s => s.status === "labeled").length,
-        active: filtered.filter(s => !["delivered", "completed", "cancelled"].includes(s.status)).length,
-        inTransit: filtered.filter(s => (IN_TRANSIT_STATUSES as readonly string[]).includes(s.status)).length,
-        delivered: filtered.filter(s => s.status === "delivered" || s.status === "completed").length,
+        active: filtered.filter(s => shipmentFilter("active").statuses.includes(s.status)).length,
+        inTransit: filtered.filter(s => shipmentFilter("in_transit_with_3pl").statuses.includes(s.status)).length,
+        delivered: filtered.filter(s => shipmentFilter("delivered_or_completed").statuses.includes(s.status)).length,
         cancelled: filtered.filter(s => s.status === "cancelled").length,
       };
     }),
