@@ -500,7 +500,7 @@ export default function Reports() {
                       label: "Average 3PL transit",
                       value:
                         s.transitDays === null ? "—" : `${fmt(s.transitDays)}d`,
-                      note: `${s.stages[1].count} measured transit legs`,
+                      note: `Based on ${s.stages[1].count} shipment${s.stages[1].count === 1 ? "" : "s"}`,
                       change: delta(s.transitDays, p.transitDays, "d", true),
                     },
                     {
@@ -642,14 +642,15 @@ export default function Reports() {
                               />
                             </div>
                             <div className="stage-sample">
-                              {stage.count} measured legs
+                              Based on {stage.count} shipment{stage.count === 1 ? "" : "s"}
                             </div>
                           </div>
                         </div>
                       ))}
                       <div className="journey-note">
-                        Different stages use different samples. Do not add these
-                        averages as an end-to-end duration.
+                        Each average may use a different set of shipments,
+                        depending on the dates recorded. Do not add these
+                        averages together to calculate the total delivery time.
                       </div>
                     </div>
                   </section>
