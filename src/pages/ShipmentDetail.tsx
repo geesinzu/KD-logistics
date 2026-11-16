@@ -17,6 +17,7 @@ import { STATUS_LABELS, STATUS_COLORS, RECEIVABLE_BY_BRANCH_STATUSES } from "@co
 import { ArrowLeft, MapPin, User, Phone, Truck, QrCode, Trash2, AlertTriangle, CheckCircle2, Building2, Check, Camera, X, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { resizeImage } from "@/lib/resizeImage";
+import { Correct3plAssignment } from "@/components/Correct3plAssignment";
 
 // <input type="datetime-local"> wants local time as YYYY-MM-DDTHH:mm
 function toLocalInputValue(d: Date): string {
@@ -389,6 +390,7 @@ export default function ShipmentDetail() {
             <CardContent className="p-4">
               <h3 className="text-[11px] font-bold text-ink-soft uppercase tracking-wide mb-2">3PL Information</h3>
               <p className="text-sm font-semibold text-ink">{shipment.tplName}</p>
+              {isSuperAdmin && <Correct3plAssignment shipment={shipment} />}
               <p className="text-xs text-ink-soft">Pickup: {shipment.tplPickupType === "kedi_driver_drop" ? "KEDI Driver Drop-off" : "3PL Direct Pickup"}</p>
               {shipment.driverName && <p className="text-xs text-ink-soft mt-1">Driver: {shipment.driverName}</p>}
             </CardContent>
