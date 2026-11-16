@@ -18,6 +18,7 @@ import { ArrowLeft, MapPin, User, Phone, Truck, QrCode, Trash2, AlertTriangle, C
 import { toast } from "sonner";
 import { resizeImage } from "@/lib/resizeImage";
 import { Correct3plAssignment } from "@/components/Correct3plAssignment";
+import { CorrectPartialTotal } from "@/components/CorrectPartialTotal";
 
 // <input type="datetime-local"> wants local time as YYYY-MM-DDTHH:mm
 function toLocalInputValue(d: Date): string {
@@ -58,10 +59,13 @@ export default function ShipmentDetail() {
 
   const deleteEventMutation = trpc.shipment.deleteTrackingEvent.useMutation({
     onSuccess: (result) => {
-      toast.success(result.revertedStatus
+      toast.success(result.quantityChange
+        ? `Entry removed — ${result.quantityChange.deliveredQty} delivered, ${result.quantityChange.remainingQty} outstanding`
+        : result.revertedStatus
         ? `Event deleted — status reverted to ${STATUS_LABELS[result.revertedStatus] || result.revertedStatus}`
         : "Event deleted");
-      utils.shipment.getById.invalidate({ id: Number(id) });
+      utils.shipment.invalidate();
+      utils.report.invalidate();
     },
     onError: (err) => toast.error(err.message),
   });
@@ -139,10 +143,13 @@ export default function ShipmentDetail() {
     const oldStatus = event?.oldStatus;
     const newStatus = event?.newStatus;
     const changedStatus = !!(oldStatus && newStatus && oldStatus !== newStatus);
-    const isCurrentTip = changedStatus && shipment?.status === newStatus;
+    const hasLaterStatusChange = shipment?.trackingEvents?.some(e => e.id > eventId && e.oldStatus && e.newStatus && e.oldStatus !== e.newStatus);
+    const isCurrentTip = changedStatus && shipment?.status === newStatus && !hasLaterStatusChange;
 
     let message = "Permanently delete this tracking event? This cannot be undone.";
-    if (isCurrentTip && oldStatus && newStatus) {
+    if (event?.eventType === "tpl_partial_delivery") {
+      message = `Delete this partial-delivery entry? Its recorded quantity (${event.qtyDelivered ?? "unknown"}) will be removed from the delivered total and outstanding quantities recalculated when safe. If later receipt evidence or a quantity correction prevents a safe rollback, deletion will be blocked. This cannot be undone.`;
+    } else if (isCurrentTip && oldStatus && newStatus) {
       const from = STATUS_LABELS[newStatus] || newStatus;
       const to = STATUS_LABELS[oldStatus] || oldStatus;
       message = `Permanently delete this event? This will also revert the shipment's status from "${from}" back to "${to}" so the action can be redone. This cannot be undone.`;
@@ -366,6 +373,7 @@ export default function ShipmentDetail() {
               <div className="bg-[#F3F1EC] rounded-xl p-2"><p className="text-lg font-bold font-display text-ink">{shipment.deliveredQty || 0}</p><p className="text-[10px] text-ink-soft">Delivered</p></div>
               <div className="bg-[#F3F1EC] rounded-xl p-2"><p className="text-lg font-bold font-display text-ink">{shipment.remainingQty || 0}</p><p className="text-[10px] text-ink-soft">Remaining</p></div>
             </div>
+            {isSuperAdmin && <CorrectPartialTotal shipment={shipment} />}
             {shipment.receiverName && (
               <div className="flex items-center gap-2 text-sm text-ink"><User size={14} className="text-ink-soft" /><span>{shipment.receiverName}</span></div>
             )}

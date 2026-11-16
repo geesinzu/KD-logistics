@@ -20,6 +20,8 @@ import {
 import { checkTplUpdateReminders } from "./lib/reminders";
 import { shipmentMonthRange, hasCompleteShipmentMonth, shipmentFilter } from "@contracts/shipment-navigation";
 import { correctTplAssignment, assertTplShipmentAccess, withAssignedShipment } from "./lib/tpl-assignment";
+import { partialIncrement } from "@contracts/partial-delivery";
+import { correctPartialTotal, deleteShipmentEvent } from "./lib/delivery-quantity-correction";
 
 // A branch manager sees a shipment if it is going to their branch OR routed
 // through it as a hub. One definition, so the list, stats, attention counts
@@ -714,13 +716,13 @@ export const shipmentRouter = createRouter({
 
         if (input.updateType === "partial_delivery") {
           newStatus = "partially_delivered";
-          const prevDelivered = shipment[0].deliveredQty || 0;
-          const totalDelivered = prevDelivered + (input.deliveredQty || 0);
-          const remaining = (shipment[0].actualItemCount || 0) - totalDelivered;
+          let quantity;
+          try { quantity = partialIncrement(shipment[0], input.deliveredQty); }
+          catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: (error as Error).message }); }
           await db.update(shipments)
-            .set({ status: newStatus, deliveredQty: totalDelivered, remainingQty: remaining > 0 ? remaining : 0 })
+            .set({ status: newStatus, deliveredQty: quantity.deliveredQty, remainingQty: quantity.remainingQty })
             .where(eq(shipments.id, input.shipmentId));
-          eventNotes = `Partial delivery: ${input.deliveredQty} items at ${input.location}. Remaining: ${remaining}`;
+          eventNotes = `Partial delivery: ${input.deliveredQty} additional items at ${input.location}. Total delivered: ${quantity.deliveredQty}. Remaining: ${quantity.remainingQty}`;
         } else if (input.updateType === "full_delivery") {
           // On a hub route the 3PL's job ends at the hub, not the final branch.
           newStatus = statusAfterTplFullDelivery(shipment[0]);
@@ -1481,56 +1483,26 @@ export const shipmentRouter = createRouter({
   // too, but only when this event is still the current "tip" -- if
   // something later moved the shipment further, rolling back to this
   // event's oldStatus would contradict everything that happened since, so
-  // in that case only the log entry comes out, same as before.
+  // in that case only the log entry comes out for ordinary events. Partial
+  // deliveries also roll back their quantity delta; unsafe dependent receipt
+  // evidence or later quantity corrections block deletion instead of guessing.
   deleteTrackingEvent: superAdminQuery
-    .input(z.object({ eventId: z.number() }))
-    .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const event = await db.select().from(trackingEvents).where(eq(trackingEvents.id, input.eventId)).limit(1);
-      if (!event[0]) throw new Error("Event not found");
+    .input(z.object({ eventId: z.number().int().positive() }))
+    .mutation(({ input, ctx }) => {
+      if (ctx.user.status !== "active") throw new TRPCError({ code: "FORBIDDEN", message: "An active Super Admin account is required." });
+      return deleteShipmentEvent(getDb(), input.eventId, ctx.user, EVENT_TYPE_SHIPMENT_DATE_FIELD);
+    }),
 
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, event[0].shipmentId)).limit(1);
-      const willRevert = !!(
-        event[0].oldStatus && event[0].newStatus && event[0].oldStatus !== event[0].newStatus &&
-        shipment[0] && shipment[0].status === event[0].newStatus
-      );
-      const milestoneField = willRevert ? EVENT_TYPE_SHIPMENT_DATE_FIELD[event[0].eventType] : undefined;
-
-      await db.insert(activityLog).values({
-        userId: ctx.user.id,
-        action: "delete_tracking_event",
-        entityType: "tracking_event",
-        entityId: input.eventId,
-        details: {
-          shipmentId: event[0].shipmentId,
-          eventType: event[0].eventType,
-          notes: event[0].notes,
-          deletedBy: ctx.user.name,
-          revertedStatusTo: willRevert ? event[0].oldStatus : null,
-        },
-      });
-
-      await db.delete(trackingEvents).where(eq(trackingEvents.id, input.eventId));
-
-      if (willRevert) {
-        await db.update(shipments)
-          .set({
-            status: event[0].oldStatus as (typeof SHIPMENT_STATUSES)[number],
-            ...(milestoneField && milestoneField !== "createdAt" ? { [milestoneField]: null } : {}),
-            // tpl_receipt_confirmed writes its own set of columns alongside
-            // status (tplConfirmedQty/Condition/At/Notes) -- revert those
-            // too, or the shipment ends up contradictory: status back to
-            // "needs receipt" but still carrying the old confirmed qty, so
-            // a stale "Outstanding"/"Receive Remaining" shows up for a
-            // shipment that was never actually confirmed in this telling.
-            ...(event[0].eventType === "tpl_receipt_confirmed"
-              ? { tplConfirmedQty: null, tplCondition: null, tplConfirmedAt: null, tplNotes: null }
-              : {}),
-          })
-          .where(eq(shipments.id, event[0].shipmentId));
-      }
-
-      return { success: true, revertedStatus: willRevert ? event[0].oldStatus : null };
+  correctPartialDeliveryTotal: superAdminQuery
+    .input(z.object({
+      shipmentId: z.number().int().positive(), expectedDeliveredQty: z.number().int().nullable(),
+      expectedRemainingQty: z.number().int().nullable(), expectedStatus: z.string().min(1).max(40),
+      expectedTotal: z.number().int().positive(), deliveredQty: z.number().int().min(0),
+      reason: z.string().trim().min(10, "Explain the correction in at least 10 characters").max(1000),
+    }))
+    .mutation(({ input, ctx }) => {
+      if (ctx.user.status !== "active") throw new TRPCError({ code: "FORBIDDEN", message: "An active Super Admin account is required." });
+      return correctPartialTotal(getDb(), input, ctx.user);
     }),
 
   // ── STATS ──
