@@ -442,8 +442,9 @@ export default function TplPortal() {
               </div>
               {updateType === "partial_delivery" && (
                 <div>
-                  <Label htmlFor="partner-field-10">Quantity Delivered Now</Label>
-                  <Input id="partner-field-10" type="number" value={deliveredQty} onChange={e => setDeliveredQty(e.target.value)} placeholder={`Of ${selectedShipment.actualItemCount || 0} total`} />
+                  <Label htmlFor="partner-field-10">Additional items delivered in this update</Label>
+                  <Input id="partner-field-10" type="number" min={1} step={1} value={deliveredQty} onChange={e => setDeliveredQty(e.target.value)} placeholder="Enter only the new items delivered" />
+                  <p className="text-xs text-ink-soft mt-1">Already recorded: {selectedShipment.deliveredQty ?? 0} of {selectedShipment.actualItemCount ?? "unknown"}. Do not enter the cumulative total again. Use Full Delivery Complete when all remaining items have arrived.</p>
                 </div>
               )}
               {updateType === "delay_reported" && (
