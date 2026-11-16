@@ -19,6 +19,7 @@ import {
 } from "./lib/shipment-flow";
 import { checkTplUpdateReminders } from "./lib/reminders";
 import { shipmentMonthRange, hasCompleteShipmentMonth, shipmentFilter } from "@contracts/shipment-navigation";
+import { correctTplAssignment, assertTplShipmentAccess, withAssignedShipment } from "./lib/tpl-assignment";
 
 // A branch manager sees a shipment if it is going to their branch OR routed
 // through it as a hub. One definition, so the list, stats, attention counts
@@ -417,6 +418,9 @@ export const shipmentRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
+      const [existing] = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+      if (!existing) throw new TRPCError({ code: "NOT_FOUND", message: "Shipment not found." });
+      if (existing.status !== "labeled") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Normal 3PL assignment is only available for labeled shipments. Ask Super Admin to use Correct 3PL assignment to preserve existing delivery progress." });
       const tplName = await getTplName(db, input.tplId);
 
       if (input.tplPickupType === "kedi_driver_drop") {
@@ -508,6 +512,18 @@ export const shipmentRouter = createRouter({
       return { success: true };
     }),
 
+  // Correct an administrative assignment mistake without replaying physical events.
+  correct3plAssignment: superAdminQuery
+    .input(z.object({
+      shipmentId: z.number().int().positive(), expectedTplId: z.number().int().positive(),
+      expectedStatus: z.string().min(1).max(40), correctTplId: z.number().int().positive(),
+      reason: z.string().trim().min(10, "Give a clear reason of at least 10 characters").max(1000),
+    }))
+    .mutation(({ ctx, input }) => {
+      if (ctx.user.status !== "active") throw new TRPCError({ code: "FORBIDDEN", message: "An active Super Admin account is required." });
+      return correctTplAssignment(getDb(), input, ctx.user.id);
+    }),
+
   // ── DRIVER: DROP AT 3PL (Step 6A) ──
   // After driver drops, 3PL gets notified to confirm receipt
   driverDropAt3pl: driverQuery
@@ -546,31 +562,32 @@ export const shipmentRouter = createRouter({
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      await db.update(shipments)
-        .set({ status: "picked_up_by_3pl", tplConfirmedQty: input.receivedQty })
-        .where(eq(shipments.id, input.shipmentId));
+      return withAssignedShipment(getDb(), ctx, input.shipmentId, async db => {
+        await db.update(shipments)
+          .set({ status: "picked_up_by_3pl", tplConfirmedQty: input.receivedQty })
+          .where(eq(shipments.id, input.shipmentId));
 
-      const actorId = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
-      const actorRole = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
-      await db.insert(trackingEvents).values({
-        shipmentId: input.shipmentId,
-        eventType: "tpl_pickup_from_warehouse",
-        oldStatus: "waiting_3pl_pickup",
-        newStatus: "picked_up_by_3pl",
-        notes: `3PL picked up ${input.receivedQty} items from warehouse directly. ${input.notes || ""}`,
-        createdBy: actorId,
-        actorRole: actorRole,
-        actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+        const actorId = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
+        const actorRole = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
+        await db.insert(trackingEvents).values({
+          shipmentId: input.shipmentId,
+          eventType: "tpl_pickup_from_warehouse",
+          oldStatus: "waiting_3pl_pickup",
+          newStatus: "picked_up_by_3pl",
+          notes: `3PL picked up ${input.receivedQty} items from warehouse directly. ${input.notes || ""}`,
+          createdBy: actorId,
+          actorRole: actorRole,
+          actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+        });
+
+        // Notify ops team that 3PL picked up
+        const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+        if (shipment[0] && shipment[0].tplId) {
+          void notify3plStatusUpdate(input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A", "tpl_pickup_from_warehouse").catch(() => {});
+        }
+
+        return { success: true };
       });
-
-      // Notify ops team that 3PL picked up
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (shipment[0] && shipment[0].tplId) {
-        void notify3plStatusUpdate(input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A", "tpl_pickup_from_warehouse").catch(() => {});
-      }
-
-      return { success: true };
     }),
 
   // ── 3PL: CONFIRM RECEIPT (Step 7) ──
@@ -583,44 +600,45 @@ export const shipmentRouter = createRouter({
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (!shipment[0]) throw new Error("Shipment not found");
+      return withAssignedShipment(getDb(), ctx, input.shipmentId, async db => {
+        const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+        if (!shipment[0]) throw new Error("Shipment not found");
 
-      const totalQty = shipment[0].actualItemCount || input.receivedQty;
-      const conditionText = input.condition === "good" ? "All items in good condition"
-        : input.condition === "partial" ? "Some items damaged/missing"
-        : "Items significantly damaged";
+        const totalQty = shipment[0].actualItemCount || input.receivedQty;
+        const conditionText = input.condition === "good" ? "All items in good condition"
+          : input.condition === "partial" ? "Some items damaged/missing"
+          : "Items significantly damaged";
 
-      await db.update(shipments)
-        .set({
-          tplConfirmedQty: input.receivedQty,
-          tplCondition: input.condition,
-          tplConfirmedAt: new Date(),
-          tplNotes: input.notes,
-          status: "tpl_confirmed",
-        })
-        .where(eq(shipments.id, input.shipmentId));
+        await db.update(shipments)
+          .set({
+            tplConfirmedQty: input.receivedQty,
+            tplCondition: input.condition,
+            tplConfirmedAt: new Date(),
+            tplNotes: input.notes,
+            status: "tpl_confirmed",
+          })
+          .where(eq(shipments.id, input.shipmentId));
 
-      const actorId2 = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
-      const actorRole2 = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
-      await db.insert(trackingEvents).values({
-        shipmentId: input.shipmentId,
-        eventType: "tpl_receipt_confirmed",
-        oldStatus: shipment[0].status,
-        newStatus: "tpl_confirmed",
-        notes: `3PL confirmed receipt: ${input.receivedQty}/${totalQty} items. ${conditionText}. ${input.notes || ""}`,
-        createdBy: actorId2,
-        actorRole: actorRole2,
-        actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+        const actorId2 = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
+        const actorRole2 = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
+        await db.insert(trackingEvents).values({
+          shipmentId: input.shipmentId,
+          eventType: "tpl_receipt_confirmed",
+          oldStatus: shipment[0].status,
+          newStatus: "tpl_confirmed",
+          notes: `3PL confirmed receipt: ${input.receivedQty}/${totalQty} items. ${conditionText}. ${input.notes || ""}`,
+          createdBy: actorId2,
+          actorRole: actorRole2,
+          actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+        });
+
+        // Notify ops team that 3PL confirmed receipt
+        if (shipment[0].tplId) {
+          void notify3plStatusUpdate(input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A", "tpl_receipt_confirmed").catch(() => {});
+        }
+
+        return { success: true, totalQty, receivedQty: input.receivedQty };
       });
-
-      // Notify ops team that 3PL confirmed receipt
-      if (shipment[0].tplId) {
-        void notify3plStatusUpdate(input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A", "tpl_receipt_confirmed").catch(() => {});
-      }
-
-      return { success: true, totalQty, receivedQty: input.receivedQty };
     }),
 
   // ── 3PL: RECEIVE REMAINING ITEMS ──
@@ -636,43 +654,44 @@ export const shipmentRouter = createRouter({
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (!shipment[0]) throw new Error("Shipment not found");
+      return withAssignedShipment(getDb(), ctx, input.shipmentId, async db => {
+        const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+        if (!shipment[0]) throw new Error("Shipment not found");
 
-      if (ctx.tplUser && shipment[0].tplId !== ctx.tplUser.tplId) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to update this shipment" });
-      }
+        if (ctx.tplUser && shipment[0].tplId !== ctx.tplUser.tplId) {
+          throw new TRPCError({ code: "FORBIDDEN", message: "Not authorized to update this shipment" });
+        }
 
-      const totalQty = shipment[0].actualItemCount || 0;
-      const outstanding = totalQty - (shipment[0].tplConfirmedQty || 0);
-      if (outstanding <= 0) throw new Error("No outstanding items for this shipment");
-      if (input.additionalQty > outstanding) throw new Error(`Cannot exceed the outstanding amount (${outstanding})`);
+        const totalQty = shipment[0].actualItemCount || 0;
+        const outstanding = totalQty - (shipment[0].tplConfirmedQty || 0);
+        if (outstanding <= 0) throw new Error("No outstanding items for this shipment");
+        if (input.additionalQty > outstanding) throw new Error(`Cannot exceed the outstanding amount (${outstanding})`);
 
-      const newConfirmedQty = (shipment[0].tplConfirmedQty || 0) + input.additionalQty;
+        const newConfirmedQty = (shipment[0].tplConfirmedQty || 0) + input.additionalQty;
 
-      await db.update(shipments)
-        .set({ tplConfirmedQty: newConfirmedQty })
-        .where(eq(shipments.id, input.shipmentId));
+        await db.update(shipments)
+          .set({ tplConfirmedQty: newConfirmedQty })
+          .where(eq(shipments.id, input.shipmentId));
 
-      const actorId4 = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
-      const actorRole4 = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
-      await db.insert(trackingEvents).values({
-        shipmentId: input.shipmentId,
-        eventType: "tpl_additional_items_received",
-        oldStatus: shipment[0].status,
-        newStatus: shipment[0].status,
-        notes: `3PL received ${input.additionalQty} additional item(s) previously missing. Now ${newConfirmedQty}/${totalQty} confirmed.${input.notes ? ` ${input.notes}` : ""}`,
-        createdBy: actorId4,
-        actorRole: actorRole4,
-        actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+        const actorId4 = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
+        const actorRole4 = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
+        await db.insert(trackingEvents).values({
+          shipmentId: input.shipmentId,
+          eventType: "tpl_additional_items_received",
+          oldStatus: shipment[0].status,
+          newStatus: shipment[0].status,
+          notes: `3PL received ${input.additionalQty} additional item(s) previously missing. Now ${newConfirmedQty}/${totalQty} confirmed.${input.notes ? ` ${input.notes}` : ""}`,
+          createdBy: actorId4,
+          actorRole: actorRole4,
+          actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+        });
+
+        if (shipment[0].tplId) {
+          void notify3plStatusUpdate(input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A", "tpl_additional_items_received").catch(() => {});
+        }
+
+        return { success: true, newConfirmedQty, outstanding: outstanding - input.additionalQty };
       });
-
-      if (shipment[0].tplId) {
-        void notify3plStatusUpdate(input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A", "tpl_additional_items_received").catch(() => {});
-      }
-
-      return { success: true, newConfirmedQty, outstanding: outstanding - input.additionalQty };
     }),
 
   // ── 3PL: UPDATE LOCATION / DELIVERY STATUS (Step 8) ──
@@ -686,94 +705,95 @@ export const shipmentRouter = createRouter({
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (!shipment[0]) throw new Error("Shipment not found");
+      return withAssignedShipment(getDb(), ctx, input.shipmentId, async db => {
+        const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
+        if (!shipment[0]) throw new Error("Shipment not found");
 
-      let newStatus = shipment[0].status;
-      let eventNotes = "";
+        let newStatus = shipment[0].status;
+        let eventNotes = "";
 
-      if (input.updateType === "partial_delivery") {
-        newStatus = "partially_delivered";
-        const prevDelivered = shipment[0].deliveredQty || 0;
-        const totalDelivered = prevDelivered + (input.deliveredQty || 0);
-        const remaining = (shipment[0].actualItemCount || 0) - totalDelivered;
-        await db.update(shipments)
-          .set({ status: newStatus, deliveredQty: totalDelivered, remainingQty: remaining > 0 ? remaining : 0 })
-          .where(eq(shipments.id, input.shipmentId));
-        eventNotes = `Partial delivery: ${input.deliveredQty} items at ${input.location}. Remaining: ${remaining}`;
-      } else if (input.updateType === "full_delivery") {
-        // On a hub route the 3PL's job ends at the hub, not the final branch.
-        newStatus = statusAfterTplFullDelivery(shipment[0]);
-        const deliveredNow = new Date();
-        await db.update(shipments)
-          .set({
-            status: newStatus,
-            deliveredAt: deliveredNow,
-            deliveredQty: shipment[0].actualItemCount,
-            remainingQty: 0,
-            deliveryReportedBy: "tpl",
-            ...(newStatus === "at_hub" ? { hubArrivedAt: deliveredNow } : {}),
-          })
-          .where(eq(shipments.id, input.shipmentId));
-        eventNotes = `Full delivery completed at ${input.location}. All ${shipment[0].actualItemCount} items delivered${newStatus === "at_hub" ? " to the hub" : ""}.`;
-      } else if (input.updateType === "delay_reported") {
-        eventNotes = `Delay reported at ${input.location}: ${input.notes || ""}`;
-      } else {
-        // location_update, sorting_update, processing_update all just mean
-        // "still in transit, here's what's happening" -- same status change,
-        // distinguished only by the event type/wording so the timeline shows
-        // a precise label instead of generic free text.
-        newStatus = "in_transit_with_3pl";
-        await db.update(shipments).set({ status: newStatus }).where(eq(shipments.id, input.shipmentId));
-        const verb = input.updateType === "sorting_update" ? "Being sorted"
-          : input.updateType === "processing_update" ? "Being processed"
-          : "In transit";
-        eventNotes = `${verb}: ${input.location}. ${input.notes || ""}`;
-      }
-
-      const actorId3 = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
-      const actorRole3 = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
-      await db.insert(trackingEvents).values({
-        shipmentId: input.shipmentId,
-        eventType: input.updateType === "partial_delivery" ? "tpl_partial_delivery"
-          : input.updateType === "full_delivery" ? "tpl_full_delivery"
-          : input.updateType === "delay_reported" ? "delay_reported"
-          : input.updateType === "sorting_update" ? "tpl_sorting_update"
-          : input.updateType === "processing_update" ? "tpl_processing_update"
-          : "tpl_location_update",
-        oldStatus: shipment[0].status,
-        newStatus,
-        location: input.location,
-        notes: eventNotes,
-        qtyDelivered: input.deliveredQty,
-        createdBy: actorId3,
-        actorRole: actorRole3,
-        actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
-      });
-
-      // Notify ops team (and branch manager on full delivery)
-      if (shipment[0].tplId) {
-        if (input.updateType === "full_delivery") {
-          if (newStatus === "at_hub") {
-            void notifyDeliveredToHub(input.shipmentId).catch(() => {});
-          } else {
-            void notifyShipmentDelivered(input.shipmentId, shipment[0].destBranchId, shipment[0].trackingId || "N/A").catch(() => {});
-          }
+        if (input.updateType === "partial_delivery") {
+          newStatus = "partially_delivered";
+          const prevDelivered = shipment[0].deliveredQty || 0;
+          const totalDelivered = prevDelivered + (input.deliveredQty || 0);
+          const remaining = (shipment[0].actualItemCount || 0) - totalDelivered;
+          await db.update(shipments)
+            .set({ status: newStatus, deliveredQty: totalDelivered, remainingQty: remaining > 0 ? remaining : 0 })
+            .where(eq(shipments.id, input.shipmentId));
+          eventNotes = `Partial delivery: ${input.deliveredQty} items at ${input.location}. Remaining: ${remaining}`;
+        } else if (input.updateType === "full_delivery") {
+          // On a hub route the 3PL's job ends at the hub, not the final branch.
+          newStatus = statusAfterTplFullDelivery(shipment[0]);
+          const deliveredNow = new Date();
+          await db.update(shipments)
+            .set({
+              status: newStatus,
+              deliveredAt: deliveredNow,
+              deliveredQty: shipment[0].actualItemCount,
+              remainingQty: 0,
+              deliveryReportedBy: "tpl",
+              ...(newStatus === "at_hub" ? { hubArrivedAt: deliveredNow } : {}),
+            })
+            .where(eq(shipments.id, input.shipmentId));
+          eventNotes = `Full delivery completed at ${input.location}. All ${shipment[0].actualItemCount} items delivered${newStatus === "at_hub" ? " to the hub" : ""}.`;
+        } else if (input.updateType === "delay_reported") {
+          eventNotes = `Delay reported at ${input.location}: ${input.notes || ""}`;
         } else {
-          void notify3plStatusUpdate(
-            input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A",
-            input.updateType === "partial_delivery" ? "tpl_partial_delivery"
-              : input.updateType === "delay_reported" ? "delay_reported"
-              : input.updateType === "sorting_update" ? "tpl_sorting_update"
-              : input.updateType === "processing_update" ? "tpl_processing_update"
-              : "tpl_location_update",
-            input.location
-          ).catch(() => {});
+          // location_update, sorting_update, processing_update all just mean
+          // "still in transit, here's what's happening" -- same status change,
+          // distinguished only by the event type/wording so the timeline shows
+          // a precise label instead of generic free text.
+          newStatus = "in_transit_with_3pl";
+          await db.update(shipments).set({ status: newStatus }).where(eq(shipments.id, input.shipmentId));
+          const verb = input.updateType === "sorting_update" ? "Being sorted"
+            : input.updateType === "processing_update" ? "Being processed"
+            : "In transit";
+          eventNotes = `${verb}: ${input.location}. ${input.notes || ""}`;
         }
-      }
 
-      return { success: true, newStatus };
+        const actorId3 = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
+        const actorRole3 = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
+        await db.insert(trackingEvents).values({
+          shipmentId: input.shipmentId,
+          eventType: input.updateType === "partial_delivery" ? "tpl_partial_delivery"
+            : input.updateType === "full_delivery" ? "tpl_full_delivery"
+            : input.updateType === "delay_reported" ? "delay_reported"
+            : input.updateType === "sorting_update" ? "tpl_sorting_update"
+            : input.updateType === "processing_update" ? "tpl_processing_update"
+            : "tpl_location_update",
+          oldStatus: shipment[0].status,
+          newStatus,
+          location: input.location,
+          notes: eventNotes,
+          qtyDelivered: input.deliveredQty,
+          createdBy: actorId3,
+          actorRole: actorRole3,
+          actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+        });
+
+        // Notify ops team (and branch manager on full delivery)
+        if (shipment[0].tplId) {
+          if (input.updateType === "full_delivery") {
+            if (newStatus === "at_hub") {
+              void notifyDeliveredToHub(input.shipmentId).catch(() => {});
+            } else {
+              void notifyShipmentDelivered(input.shipmentId, shipment[0].destBranchId, shipment[0].trackingId || "N/A").catch(() => {});
+            }
+          } else {
+            void notify3plStatusUpdate(
+              input.shipmentId, shipment[0].tplId, shipment[0].trackingId || "N/A",
+              input.updateType === "partial_delivery" ? "tpl_partial_delivery"
+                : input.updateType === "delay_reported" ? "delay_reported"
+                : input.updateType === "sorting_update" ? "tpl_sorting_update"
+                : input.updateType === "processing_update" ? "tpl_processing_update"
+                : "tpl_location_update",
+              input.location
+            ).catch(() => {});
+          }
+        }
+
+        return { success: true, newStatus };
+      });
     }),
 
   // ── TPL: UPDATE ESTIMATED DELIVERY DATE ──
@@ -784,28 +804,29 @@ export const shipmentRouter = createRouter({
       notes: z.string().optional(),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const actorId = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
-      const actorRole = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
+      return withAssignedShipment(getDb(), ctx, input.shipmentId, async db => {
+        const actorId = ctx.user?.id ?? ctx.tplUser?.id ?? 0;
+        const actorRole = ctx.user?.role ?? ctx.tplUser?.role ?? "unknown";
 
-      await db.update(shipments)
-        .set({ estimatedDeliveryDate: new Date(input.estimatedDeliveryDate) })
-        .where(eq(shipments.id, input.shipmentId));
+        await db.update(shipments)
+          .set({ estimatedDeliveryDate: new Date(input.estimatedDeliveryDate) })
+          .where(eq(shipments.id, input.shipmentId));
 
-      await db.insert(trackingEvents).values({
-        shipmentId: input.shipmentId,
-        eventType: "note_added",
-        oldStatus: null,
-        newStatus: null,
-        notes: `Estimated delivery date updated to ${new Date(input.estimatedDeliveryDate).toLocaleDateString("en-NG")}. ${input.notes || ""}`,
-        createdBy: actorId,
-        actorRole,
-        actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+        await db.insert(trackingEvents).values({
+          shipmentId: input.shipmentId,
+          eventType: "note_added",
+          oldStatus: null,
+          newStatus: null,
+          notes: `Estimated delivery date updated to ${new Date(input.estimatedDeliveryDate).toLocaleDateString("en-NG")}. ${input.notes || ""}`,
+          createdBy: actorId,
+          actorRole,
+          actorType: ctx.tplUser ? "tpl_user" : "kedi_user",
+        });
+
+        const changedBy = ctx.user ? ctx.user.name : ctx.tplUser ? await getTplName(db, ctx.tplUser.tplId) : "Unknown";
+        void notifyDeliveryDateChanged(input.shipmentId, input.estimatedDeliveryDate, changedBy, ctx.user?.id).catch(() => {});
+        return { success: true };
       });
-
-      const changedBy = ctx.user ? ctx.user.name : ctx.tplUser ? await getTplName(db, ctx.tplUser.tplId) : "Unknown";
-      void notifyDeliveryDateChanged(input.shipmentId, input.estimatedDeliveryDate, changedBy, ctx.user?.id).catch(() => {});
-      return { success: true };
     }),
 
   // ── BRANCH MANAGER: ACKNOWLEDGE DELIVERY (Step 9) ──
@@ -1342,10 +1363,11 @@ export const shipmentRouter = createRouter({
   // ── GET SINGLE SHIPMENT + TRACKING HISTORY ──
   getById: authedQuery
     .input(z.object({ id: z.number() }))
-    .query(async ({ input }) => {
+    .query(async ({ input, ctx }) => {
       const db = getDb();
       const shipment = await db.select().from(shipments).where(eq(shipments.id, input.id)).limit(1);
       if (!shipment[0]) return null;
+      assertTplShipmentAccess(ctx, shipment[0].tplId);
 
       const branch = await db.select().from(branches).where(eq(branches.id, shipment[0].destBranchId)).limit(1);
       const originBranch = shipment[0].originBranchId
