@@ -71,6 +71,24 @@ describe.skipIf(!url)("partial quantity correction on MySQL", () => {
     const [last] = await rows("SELECT id FROM tracking_events WHERE event_type='tpl_partial_delivery' ORDER BY id DESC LIMIT 1");
     expect((await admin().deleteTrackingEvent({ eventId: last.id })).quantityChange).toEqual({ deliveredQty: 38, remainingQty: 12 });
   });
+  it("repairs a historical overcount without an audit only when surviving entries verify the total", async () => {
+    await seedStale(); await db.query("DELETE FROM activity_log");
+    await expect(admin().correctPartialDeliveryTotal({ ...repair, deliveredQty: 37 })).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(await admin().correctPartialDeliveryTotal(repair)).toMatchObject({ deliveredQty: 38, remainingQty: 12 });
+    const [audit] = await rows("SELECT details FROM activity_log WHERE action='correct_delivery_quantity'");
+    const details = typeof audit.details === "string" ? JSON.parse(audit.details) : audit.details;
+    expect(details.evidenceSource).toBe("surviving_partial_entries_overcount");
+    expect(details.verifiedPartialEventIds).toEqual([4]);
+    expect(await rows("SELECT * FROM tracking_events WHERE id=4 AND qty_delivered=38")).toHaveLength(1);
+  });
+  it("rejects auditless repair with missing quantities or an existing correction baseline", async () => {
+    await seedStale(); await db.query("DELETE FROM activity_log");
+    await db.query("UPDATE tracking_events SET qty_delivered=NULL WHERE id=4");
+    await expect(admin().correctPartialDeliveryTotal(repair)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    await db.query("UPDATE tracking_events SET qty_delivered=38 WHERE id=4");
+    await db.query("INSERT INTO activity_log(user_id,action,entity_type,entity_id,details) VALUES(1,'correct_delivery_quantity','shipment',80001,JSON_OBJECT('correctionEventId',5))");
+    await expect(admin().correctPartialDeliveryTotal(repair)).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+  });
   it("rejects stale reviews, duplicate corrections and over-counting", async () => {
     await seedStale();
     await expect(admin().correctPartialDeliveryTotal({ ...repair, expectedDeliveredQty: 32 })).rejects.toMatchObject({ code: "CONFLICT" });
