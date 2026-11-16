@@ -66,7 +66,16 @@ export async function correctPartialTotal(db: Database, input: PartialTotalInput
       sql`JSON_UNQUOTE(JSON_EXTRACT(${activityLog.details}, '$.eventType')) = 'tpl_partial_delivery'`,
     )).orderBy(activityLog.id).for("update");
     const evidence = deletions.filter(d => { const details = d.details as { shipmentId?: number; eventType?: string }; return details?.shipmentId === before.id && details.eventType === "tpl_partial_delivery"; });
-    if (!evidence.length) throw precondition("No deleted partial-delivery entry was found for this shipment. Review the source of the quantity discrepancy first.");
+    // Some historical deletions have no discoverable audit. Only repair an
+    // impossible overcount when intact incremental entries independently prove
+    // the requested cumulative total, with no previous correction baseline.
+    const partials = history.filter(e => e.eventType === "tpl_partial_delivery");
+    const priorCorrections = await tx.select({ id: activityLog.id }).from(activityLog).where(and(eq(activityLog.entityType, "shipment"), eq(activityLog.entityId, before.id), eq(activityLog.action, "correct_delivery_quantity"))).for("update");
+    const historyProvesTotal = !evidence.length && !priorCorrections.length &&
+      (before.deliveredQty ?? 0) > before.actualItemCount! && before.remainingQty === 0 &&
+      partials.length > 0 && partials.every(e => Number.isInteger(e.qtyDelivered) && e.qtyDelivered! > 0) &&
+      partials.reduce((sum, e) => sum + e.qtyDelivered!, 0) === input.deliveredQty;
+    if (!evidence.length && !historyProvesTotal) throw precondition("No matching deletion audit was found, and the remaining partial-delivery entries do not safely verify this correction. Review the shipment history first.");
     if (!Number.isInteger(input.deliveredQty) || input.deliveredQty < 0 || input.deliveredQty >= input.expectedTotal) throw new TRPCError({ code: "BAD_REQUEST", message: "Enter the confirmed partial total. For a complete delivery, use normal full-delivery confirmation." });
     if (input.deliveredQty === before.deliveredQty && before.remainingQty === before.actualItemCount! - input.deliveredQty) throw new TRPCError({ code: "BAD_REQUEST", message: "These totals are already correct." });
     const fallback = (evidence.at(-1)?.details as { revertedStatusTo?: string | null })?.revertedStatusTo;
@@ -75,10 +84,10 @@ export async function correctPartialTotal(db: Database, input: PartialTotalInput
     const remainingQty = before.actualItemCount! - input.deliveredQty;
     await tx.update(shipments).set({ deliveredQty: input.deliveredQty, remainingQty, status: status as typeof before.status }).where(eq(shipments.id, before.id));
     const [note] = await tx.insert(trackingEvents).values({ shipmentId: before.id, eventType: "note_added", oldStatus: before.status, newStatus: status,
-      notes: `Partial-delivery total corrected after an earlier entry was deleted: ${before.deliveredQty ?? 0} → ${input.deliveredQty} delivered out of ${before.actualItemCount}; ${remainingQty} outstanding. This is a cumulative total correction, not an additional delivery. Existing valid delivery entries were kept. Reason: ${input.reason}`,
+      notes: `Partial-delivery total corrected following review: ${before.deliveredQty ?? 0} → ${input.deliveredQty} delivered out of ${before.actualItemCount}; ${remainingQty} outstanding. This is a cumulative total correction, not an additional delivery. Existing valid delivery entries were kept. Reason: ${input.reason}`,
       createdBy: actor.id, actorRole: "super_admin", actorType: "kedi_user" });
     await tx.insert(activityLog).values({ userId: actor.id, action: "correct_delivery_quantity", entityType: "shipment", entityId: before.id, details: {
-      trackingId: before.trackingId, reason: input.reason, deletionAuditIds: evidence.map(e => e.id), correctionEventId: note.insertId,
+      trackingId: before.trackingId, reason: input.reason, evidenceSource: historyProvesTotal ? "surviving_partial_entries_overcount" : "deletion_audit", verifiedPartialEventIds: historyProvesTotal ? partials.map(e => e.id) : [], deletionAuditIds: evidence.map(e => e.id), correctionEventId: note.insertId,
       before: { deliveredQty: before.deliveredQty, remainingQty: before.remainingQty, status: before.status },
       after: { deliveredQty: input.deliveredQty, remainingQty, status }, actualItemCount: before.actualItemCount,
     } });

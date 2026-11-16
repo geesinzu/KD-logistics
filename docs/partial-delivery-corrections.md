@@ -14,7 +14,7 @@ After deployment, an active Super Admin can open the shipment's Details and sele
 
 For the example above, enter **38**, leaving **12** outstanding. Keep the valid 38-item delivery entry. Do not ask the 3PL to enter that delivery again.
 
-The repair requires an audited deletion of a partial-delivery entry and an eligible shipment without downstream receipt evidence. It checks that the displayed shipment quantities and status have not changed before saving. It preserves valid history, driver and logistics assignments, dates and the actual item count. The correction adds a note and a separate audit record in the same transaction. Neither deletion nor correction sends a push notification.
+The repair requires an eligible shipment without downstream receipt evidence and either an audited partial-entry deletion or a narrowly verified historical overcount. Without a deletion audit, delivered must exceed the actual item total, remaining must be zero, every surviving partial entry must have a positive whole quantity, their sum must exactly match the requested correction, and no previous quantity-correction audit may exist. The correction audit records the evidence source and surviving event IDs. It checks that the displayed shipment quantities and status have not changed before saving. It preserves valid history, driver and logistics assignments, dates and the actual item count. The correction adds a note and a separate audit record in the same transaction. Neither deletion nor correction sends a push notification.
 
 This change does not automatically modify production shipment records or backfill all historical quantities.
 
