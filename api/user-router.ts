@@ -5,6 +5,8 @@ import { eq, like, desc, sql, and, or, ne } from "drizzle-orm";
 import { users, branches } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { createRouter, adminQuery, superAdminQuery, authedQuery } from "./middleware";
+import { assertStaffAuthority } from "./lib/staff-permissions";
+import { KEDI_ROLES } from "@contracts/constants";
 import type { KediRole } from "@contracts/constants";
 
 const PHONE_REGEX = /^\d{11}$/;
@@ -30,7 +32,7 @@ export const userRouter = createRouter({
       z.object({
         page: z.number().default(1),
         limit: z.number().default(20),
-        role: z.string().optional(),
+        role: z.enum(KEDI_ROLES).optional(),
         status: z.string().optional(),
         search: z.string().optional(),
       }).optional()
@@ -93,7 +95,7 @@ export const userRouter = createRouter({
     }),
 
   updateRole: superAdminQuery
-    .input(z.object({ id: z.number(), role: z.string() }))
+    .input(z.object({ id: z.number(), role: z.enum(KEDI_ROLES) }))
     .mutation(async ({ input }) => {
       const db = getDb();
       await db.update(users).set({ role: input.role as KediRole }).where(eq(users.id, input.id));
@@ -101,32 +103,33 @@ export const userRouter = createRouter({
     }),
 
   updateStatus: adminQuery
-    .input(z.object({ id: z.number(), status: z.enum(["pending", "active", "suspended"]) }))
-    .mutation(async ({ input }) => {
-      const db = getDb();
-      await db.update(users).set({ status: input.status }).where(eq(users.id, input.id));
+    .input(z.object({ id: z.number().int().positive(), status: z.enum(["pending", "active", "suspended"]) }))
+    .mutation(async ({ input, ctx }) => getDb().transaction(async tx => {
+      const [target] = await tx.select().from(users).where(eq(users.id, input.id)).limit(1).for("update");
+      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found" });
+      assertStaffAuthority(ctx.user.role, undefined, target.role);
+      await tx.update(users).set({ status: input.status }).where(eq(users.id, input.id));
       return { success: true };
-    }),
+    })),
 
-  // ── APPROVE A PENDING SIGNUP ──
-  // Sets role, branch and status together so a pending user is never left
-  // half-configured -- the role/branch they self-requested at signup is a
-  // request, not a grant; this is where an admin confirms or corrects it
-  // before the account can actually log in. adminQuery (not superAdminQuery,
-  // unlike updateRole) to match `create`'s access level -- an admin who can
-  // freely set any role when adding a user directly shouldn't hit a
-  // permissions wall doing the equivalent for a self-signup.
+  // Approval assigns a requested operational role; granting administrator
+  // privileges or managing an existing administrator requires Super Admin.
   approveUser: adminQuery
-    .input(z.object({ id: z.number(), role: z.string(), branchId: z.number().nullable() }))
-    .mutation(async ({ input }) => {
-      const db = getDb();
-      await db.update(users).set({
-        role: input.role as KediRole,
-        branchId: input.branchId,
-        status: "active",
-      }).where(eq(users.id, input.id));
+    .input(z.object({ id: z.number().int().positive(), role: z.enum(KEDI_ROLES), branchId: z.number().int().positive().nullable() }))
+    .mutation(async ({ input, ctx }) => getDb().transaction(async tx => {
+      assertStaffAuthority(ctx.user.role, input.role);
+      const [target] = await tx.select().from(users).where(eq(users.id, input.id)).limit(1).for("update");
+      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found" });
+      assertStaffAuthority(ctx.user.role, input.role, target.role);
+      if (target.status !== "pending") throw new TRPCError({ code: "PRECONDITION_FAILED", message: "Only pending signups can be approved. Use the staff editing controls for an existing account." });
+      if (input.role === "branch_manager" && !input.branchId) throw new TRPCError({ code: "BAD_REQUEST", message: "A branch manager must be assigned to a branch" });
+      if (input.branchId) {
+        const [branch] = await tx.select().from(branches).where(eq(branches.id, input.branchId)).limit(1);
+        if (!branch || branch.status !== "active") throw new TRPCError({ code: "BAD_REQUEST", message: "Select an active branch office" });
+      }
+      await tx.update(users).set({ role: input.role, branchId: input.branchId, status: "active" }).where(eq(users.id, input.id));
       return { success: true };
-    }),
+    })),
 
   updateStaff: superAdminQuery
     .input(z.object({
@@ -165,22 +168,25 @@ export const userRouter = createRouter({
     }),
 
   delete: adminQuery
-    .input(z.object({ id: z.number() }))
-    .mutation(async ({ input }) => {
-      const db = getDb();
-      await db.delete(users).where(eq(users.id, input.id));
+    .input(z.object({ id: z.number().int().positive() }))
+    .mutation(async ({ input, ctx }) => getDb().transaction(async tx => {
+      const [target] = await tx.select().from(users).where(eq(users.id, input.id)).limit(1).for("update");
+      if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found" });
+      assertStaffAuthority(ctx.user.role, undefined, target.role);
+      await tx.delete(users).where(eq(users.id, input.id));
       return { success: true };
-    }),
+    })),
 
   create: adminQuery
     .input(z.object({
       name: z.string().min(2),
       phone: z.string().regex(PHONE_REGEX, "Enter an 11-digit phone number"),
-      role: z.string(),
+      role: z.enum(KEDI_ROLES),
       branchId: z.number().optional(),
       password: z.string().min(6).optional(),
     }))
     .mutation(async ({ input, ctx }) => {
+      assertStaffAuthority(ctx.user.role, input.role);
       const db = getDb();
       const existing = await db.select().from(users).where(eq(users.phone, input.phone)).limit(1);
       if (existing.length > 0) throw new Error("Phone number already exists");

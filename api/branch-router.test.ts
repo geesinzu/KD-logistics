@@ -8,7 +8,7 @@ import { branchRouter } from "./branch-router";
 import { branchTrackingCode } from "./lib/branch-tracking";
 
 function caller(role = "admin") {
-  return branchRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), user: { id: 1, role } } as TrpcContext);
+  return branchRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), user: { id: 1, role, status: "active" } } as TrpcContext);
 }
 beforeEach(() => {
   vi.resetAllMocks(); results.length = 0;

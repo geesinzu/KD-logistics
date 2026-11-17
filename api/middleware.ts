@@ -11,6 +11,10 @@ export const createRouter = t.router;
 export const publicQuery = t.procedure;
 
 // ── AUTH MIDDLEWARE ──
+const activeAccount = t.middleware(({ ctx, next }) => {
+  if ((ctx.user && ctx.user.status !== "active") || (ctx.tplUser && ctx.tplUser.status !== "active")) throw new TRPCError({ code: "FORBIDDEN", message: "An active account is required." });
+  return next();
+});
 // Allows KEDI users OR TPL users
 const requireAuth = t.middleware(async (opts) => {
   const { ctx, next } = opts;
@@ -61,13 +65,13 @@ function requireRoles(roles: string[]) {
 }
 
 // ── BASE PROCEDURES ──
-export const authedQuery = t.procedure.use(requireAuth);
+export const authedQuery = t.procedure.use(activeAccount).use(requireAuth);
 
 // KEDI-only procedures
-export const kediQuery = t.procedure.use(requireKediUser);
+export const kediQuery = t.procedure.use(activeAccount).use(requireKediUser);
 
 // TPL-only procedures
-export const tplQuery = t.procedure.use(requireTplUser);
+export const tplQuery = t.procedure.use(activeAccount).use(requireTplUser);
 
 // Role-based KEDI procedures
 export const adminQuery = kediQuery.use(requireRoles(["super_admin", "admin"]));

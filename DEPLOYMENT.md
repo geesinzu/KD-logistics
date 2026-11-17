@@ -37,7 +37,7 @@ MySQL one):
    - `NODE_ENV` — `production`. **Required**: the server only starts
      listening `if (NODE_ENV === "production")`; without it the app
      loads and silently does nothing (`api/lib/env.ts`).
-   - `JWT_SECRET` — any long random string.
+   - `JWT_SECRET` — a private random value of at least 32 bytes. Production refuses to start if it is absent, too short, or the former source-known fallback.
    - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` —
      optional, only needed for push notifications.
 3. **Run schema migrations manually**, same philosophy as cPanel —
@@ -91,7 +91,7 @@ shared host never runs `npm install` or a build.
 3. **Set environment variables** — in that same Node.js App screen,
    add:
    - `DATABASE_URL` — `mysql://cpaneluser_dbuser:PASSWORD@localhost:3306/cpaneluser_dbname`
-   - `JWT_SECRET` — any long random string
+   - `JWT_SECRET` — a private random value of at least 32 bytes; missing or unsafe values prevent production startup
    - `VAPID_PUBLIC_KEY` / `VAPID_PRIVATE_KEY` / `VAPID_SUBJECT` —
      optional, only needed for push notifications (generate with
      `npx web-push generate-vapid-keys`)

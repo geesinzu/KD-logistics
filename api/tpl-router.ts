@@ -14,7 +14,7 @@ export const tplRouter = createRouter({
     return db.select().from(thirdPartyLogistics).where(eq(thirdPartyLogistics.status, "active")).orderBy(desc(thirdPartyLogistics.createdAt));
   }),
 
-  create: publicQuery
+  create: adminQuery
     .input(z.object({
       name: z.string().min(2),
       code: z.string().min(2).max(10),
@@ -51,6 +51,7 @@ export const tplRouter = createRouter({
       if (!user) throw new Error("Invalid credentials");
       const valid = await bcrypt.compare(input.password, user.passwordHash);
       if (!valid) throw new Error("Invalid credentials");
+      if (user.status !== "active") throw new Error("This 3PL account is inactive. Contact KEDI administration.");
       const token = await createTplToken(user.id);
       return { token, user: { id: user.id, name: user.name, role: user.role, tplId: user.tplId } };
     }),

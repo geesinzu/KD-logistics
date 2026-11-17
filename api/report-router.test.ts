@@ -8,7 +8,7 @@ function caller(role?: string) {
   return reportRouter.createCaller({
     req: new Request("http://localhost"),
     resHeaders: new Headers(),
-    ...(role ? { user: { id: 1, role } } : {}),
+    ...(role ? { user: { id: 1, role, status: "active" } } : {}),
   } as TrpcContext);
 }
 beforeEach(() => {

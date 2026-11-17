@@ -6,7 +6,7 @@ const { select, update, set, where, results } = vi.hoisted(() => ({
 vi.mock("./queries/connection", () => ({ getDb: () => ({ select, update }) }));
 import { userRouter } from "./user-router";
 function caller(role = "super_admin") {
-  return userRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), user: { id: 1, role } } as TrpcContext);
+  return userRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), user: { id: 1, role, status: "active" } } as TrpcContext);
 }
 const details = { id: 2, name: "Branch Staff", phone: "08012345678", email: "", branchId: 8 };
 beforeEach(() => {

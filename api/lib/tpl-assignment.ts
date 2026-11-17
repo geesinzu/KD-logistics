@@ -3,6 +3,8 @@ import { and, eq, inArray, or } from "drizzle-orm";
 import { shipments, thirdPartyLogistics, trackingEvents, activityLog } from "@db/schema";
 import type { TrpcContext } from "../context";
 import type { getDb } from "../queries/connection";
+import { assertTplWriteAccess } from "./shipment-access";
+import { withShipmentLock } from "./shipment-transaction";
 import { tplCorrectionBlockReason } from "@contracts/tpl-correction";
 
 type Database = ReturnType<typeof getDb>;
@@ -16,12 +18,11 @@ export function assertTplShipmentAccess(ctx: Pick<TrpcContext, "tplUser">, tplId
 
 // Serialize 3PL writes with assignment corrections. A former company cannot
 // pass a stale ownership check, wait for a correction, then update the shipment.
-export async function withAssignedShipment<T>(db: Database, ctx: Pick<TrpcContext, "tplUser">, shipmentId: number, work: (tx: Transaction) => Promise<T>) {
-  return db.transaction(async tx => {
-    const [shipment] = await tx.select({ tplId: shipments.tplId }).from(shipments).where(eq(shipments.id, shipmentId)).limit(1).for("update");
-    if (!shipment) throw new TRPCError({ code: "NOT_FOUND", message: "Shipment not found." });
+export async function withAssignedShipment<T>(db: Database, ctx: Pick<TrpcContext, "user" | "tplUser">, shipmentId: number, work: (tx: Transaction, shipment: typeof shipments.$inferSelect, afterCommit: (effect: () => Promise<unknown>) => void) => Promise<T>) {
+  assertTplWriteAccess(ctx);
+  return withShipmentLock(db, shipmentId, (tx, shipment, afterCommit) => {
     assertTplShipmentAccess(ctx, shipment.tplId);
-    return work(tx);
+    return work(tx, shipment, afterCommit);
   });
 }
 
