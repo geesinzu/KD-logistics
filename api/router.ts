@@ -1,3 +1,4 @@
+import { operationsRouter } from "./operations-router";
 import { reportRouter } from "./report-router";
 import { authRouter } from "./auth-router";
 import { userRouter } from "./user-router";
@@ -34,6 +35,7 @@ export const appRouter = createRouter({
   branch: branchRouter,
   shipment: shipmentRouter,
   report: reportRouter,
+  operations: operationsRouter,
   tpl: tplRouter,
   push: pushRouter,
 });

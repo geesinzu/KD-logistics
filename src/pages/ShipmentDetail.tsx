@@ -18,6 +18,7 @@ import { ArrowLeft, MapPin, User, Phone, Truck, QrCode, Trash2, AlertTriangle, C
 import { toast } from "sonner";
 import { resizeImage } from "@/lib/resizeImage";
 import { Correct3plAssignment } from "@/components/Correct3plAssignment";
+import { ShipmentDocuments } from "@/components/operations/ShipmentDocuments";
 import { CorrectPartialTotal } from "@/components/CorrectPartialTotal";
 
 // <input type="datetime-local"> wants local time as YYYY-MM-DDTHH:mm
@@ -478,6 +479,8 @@ export default function ShipmentDetail() {
             </Button>
           )}
         </div>
+
+        <ShipmentDocuments shipmentId={shipment.id} />
 
         {/* Timeline */}
         <Card className="border border-[#E8E4DC] shadow-none rounded-2xl mb-4">
