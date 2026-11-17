@@ -2,7 +2,7 @@ import { branchTrackingCode } from "./lib/branch-tracking";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
 import { eq, desc, and, or, sql, inArray, gte, lt, lte, like } from "drizzle-orm";
-import { shipments, trackingEvents, users, branches, thirdPartyLogistics, activityLog } from "@db/schema";
+import { shipments, trackingEvents, users, branches, thirdPartyLogistics, activityLog, operationFiles } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { createRouter, authedQuery, kediQuery, adminQuery, superAdminQuery, branchManagerQuery, branchOnlyQuery, shipmentCreatorQuery, warehouseQuery, logisticsQuery, driverQuery } from "./middleware";
 import { SHIPMENT_STATUSES, STATUS_LABELS, IN_TRANSIT_STATUSES, TPL_DONE_STATUSES, ONWARD_STATUSES } from "@contracts/constants";
@@ -23,6 +23,7 @@ import { correctTplAssignment, withAssignedShipment } from "./lib/tpl-assignment
 import { withShipmentLock } from "./lib/shipment-transaction";
 import { assertShipmentReadAccess, assertStage, TPL_ACTIVE_STAGES, tplVisibleHistory } from "./lib/shipment-access";
 import { partialIncrement } from "@contracts/partial-delivery";
+import { operationsReady } from "./lib/operations-schema";
 import { correctPartialTotal, deleteShipmentEvent } from "./lib/delivery-quantity-correction";
 
 // A branch manager sees a shipment if it is going to their branch OR routed
@@ -1491,26 +1492,27 @@ export const shipmentRouter = createRouter({
   deleteShipment: superAdminQuery
     .input(z.object({ shipmentId: z.number(), reason: z.string().min(3, "Please provide a reason") }))
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
-      const shipment = await db.select().from(shipments).where(eq(shipments.id, input.shipmentId)).limit(1);
-      if (!shipment[0]) throw new Error("Shipment not found");
+      const filesReady = await operationsReady();
+      return withShipmentLock(getDb(), input.shipmentId, async (db, record) => {
 
-      await db.insert(activityLog).values({
-        userId: ctx.user.id,
-        action: "delete_shipment",
-        entityType: "shipment",
-        entityId: input.shipmentId,
-        details: {
-          trackingId: shipment[0].trackingId,
-          reason: input.reason,
-          deletedBy: ctx.user.name,
-        },
+        await db.insert(activityLog).values({
+          userId: ctx.user.id,
+          action: "delete_shipment",
+          entityType: "shipment",
+          entityId: input.shipmentId,
+          details: {
+            trackingId: record.trackingId,
+            reason: input.reason,
+            deletedBy: ctx.user.name,
+          },
       });
 
+      if (filesReady) await db.update(operationFiles).set({ content: null, removedAt: new Date(), removedBy: ctx.user.id, removalReason: `Shipment deleted: ${input.reason}`.slice(0, 1000) }).where(and(eq(operationFiles.parentType, "shipment"), eq(operationFiles.parentId, input.shipmentId), sql`${operationFiles.removedAt} IS NULL`));
       await db.delete(trackingEvents).where(eq(trackingEvents.shipmentId, input.shipmentId));
       await db.delete(shipments).where(eq(shipments.id, input.shipmentId));
 
       return { success: true };
+      });
     }),
 
   // ── SUPER ADMIN: PERMANENTLY DELETE A SINGLE TRACKING EVENT ──

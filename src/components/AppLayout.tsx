@@ -2,8 +2,9 @@ import { Outlet, NavLink, useLocation } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useUnreadNotificationCount } from "@/hooks/useNotifications";
 import { usePushSelfHeal } from "@/hooks/usePushNotifications";
-import { LayoutDashboard, Package, Users, ScanLine, UserCircle, Bell, Building2, BarChart3, ArrowUpRight } from "lucide-react";
+import { LayoutDashboard, Package, Users, ScanLine, UserCircle, Bell, Building2, BarChart3, ArrowUpRight, ArrowLeftRight, FolderLock } from "lucide-react";
 import { Toaster } from "@/components/ui/sonner";
+import { TRANSFER_ROLES } from "@contracts/operations";
 import { ROLE_LABELS } from "@contracts/constants";
 import "./workspace.css";
 
@@ -22,7 +23,8 @@ export function AppLayout() {
     { path: "/profile", icon: UserCircle, label: "Profile" },
   ];
   const canReport = role && ["super_admin", "admin", "logistics_officer", "viewer"].includes(role);
-  const title = location.pathname.startsWith("/reports") ? "Reports" : tabs.find(t => t.path !== "/" && location.pathname.startsWith(t.path))?.label ?? "Overview";
+  const canTransfer = role && TRANSFER_ROLES.some(allowed => allowed === role);
+  const title = location.pathname.startsWith("/transfers") ? "Branch transfers" : location.pathname.startsWith("/documents") ? "Documents" : location.pathname.startsWith("/reports") ? "Reports" : tabs.find(t => t.path !== "/" && location.pathname.startsWith(t.path))?.label ?? "Overview";
   const initials = user?.name.split(" ").map(part => part[0]).slice(0, 2).join("") ?? "";
   const roleLabel = ROLE_LABELS[role as keyof typeof ROLE_LABELS] ?? role;
 
@@ -35,6 +37,8 @@ export function AppLayout() {
         <p className="workspace-nav-label">WORKSPACE</p>
         <nav aria-label="Desktop navigation">
           {tabs.map(tab => <NavLink key={tab.path} to={tab.path} end={tab.path === "/"} className={({ isActive }) => `workspace-nav-link ${isActive ? "active" : ""}`}><tab.icon size={19} /><span>{tab.label}</span></NavLink>)}
+          <NavLink to="/documents" className={({ isActive }) => `workspace-nav-link ${isActive ? "active" : ""}`}><FolderLock size={19} /><span>Documents</span></NavLink>
+          {canTransfer && <NavLink to="/transfers" className={({ isActive }) => `workspace-nav-link ${isActive ? "active" : ""}`}><ArrowLeftRight size={19} /><span>Branch transfers</span></NavLink>}
           {canReport && <NavLink to="/reports" className={({ isActive }) => `workspace-nav-link ${isActive ? "active" : ""}`}><BarChart3 size={19} /><span>Reports</span></NavLink>}
         </nav>
         <div className="workspace-sidebar-bottom">
@@ -48,6 +52,7 @@ export function AppLayout() {
           <div className="workspace-breadcrumb">Workspace <span>/</span><strong>{title}</strong></div>
           <div className="workspace-header-actions"><span className="workspace-role">{roleLabel}</span><NavLink to="/notifications" className="workspace-notifications" aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`}><Bell size={21} />{unreadCount > 0 && <span>{unreadCount > 9 ? "9+" : unreadCount}</span>}</NavLink><NavLink to="/profile" className="workspace-avatar" aria-label="Your profile">{initials}</NavLink></div>
         </header>
+      <nav className="ops-mobile-shortcuts" aria-label="Operations workspaces"><NavLink to="/documents"><FolderLock size={16} /> Documents</NavLink>{canTransfer && <NavLink to="/transfers"><ArrowLeftRight size={16} /> Branch transfers</NavLink>}</nav>
         <main id="workspace-content" tabIndex={-1} className="workspace-content"><Outlet /></main>
       </div>
       <nav className="workspace-mobile-nav" aria-label="Mobile navigation">{tabs.map(tab => <NavLink key={tab.path} to={tab.path} end={tab.path === "/"} className={({ isActive }) => isActive ? "active" : ""}><tab.icon size={21} /><span>{tab.label}</span></NavLink>)}</nav>

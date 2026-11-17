@@ -10,7 +10,11 @@ import {
   json,
   decimal,
   datetime,
+  customType,
+  index,
 } from "drizzle-orm/mysql-core";
+
+import { sql } from "drizzle-orm";
 
 // ── USERS ──
 export const users = mysqlTable("users", {
@@ -263,3 +267,34 @@ export const activityLog = mysqlTable("activity_log", {
   details: json("details"),
   createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+// Separate staff-only branch handovers; these never create shipment/3PL tasks.
+export const branchTransfers = mysqlTable("branch_transfers", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  clientKey: varchar("client_key", { length: 36 }).notNull().unique(),
+  requestHash: varchar("request_hash", { length: 64 }).notNull(),
+  sourceBranchId: bigint("source_branch_id", { mode: "number", unsigned: true }).notNull(),
+  destinationBranchId: bigint("destination_branch_id", { mode: "number", unsigned: true }).notNull(),
+  description: text("description").notNull(), quantity: int("quantity").notNull(), unit: varchar("unit", { length: 30 }).notNull(), reason: text("reason").notNull(),
+  status: mysqlEnum("status", ["requested", "approved", "rejected", "cancelled", "dispatched", "partially_received", "received"]).notNull().default("requested"),
+  receivedQty: int("received_qty").notNull().default(0), version: int("version").notNull().default(1),
+  companyName: varchar("company_name", { length: 150 }).notNull(), contactName: varchar("contact_name", { length: 100 }).notNull(), contactPhone: varchar("contact_phone", { length: 30 }).notNull(),
+  deliveryMode: mysqlEnum("delivery_mode", ["door_to_door", "pickup"]).notNull(), pickupLocation: varchar("pickup_location", { length: 500 }),
+  requestedBy: bigint("requested_by", { mode: "number", unsigned: true }).notNull(), approvedBy: bigint("approved_by", { mode: "number", unsigned: true }), dispatchedBy: bigint("dispatched_by", { mode: "number", unsigned: true }),
+  createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`), approvedAt: datetime("approved_at"), dispatchedAt: datetime("dispatched_at"), receivedAt: datetime("received_at"),
+}, table => [index("transfer_source").on(table.sourceBranchId, table.createdAt), index("transfer_destination").on(table.destinationBranchId, table.createdAt), index("transfer_status").on(table.status, table.createdAt)]);
+export const branchTransferEvents = mysqlTable("branch_transfer_events", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(), transferId: bigint("transfer_id", { mode: "number", unsigned: true }).notNull(),
+  clientKey: varchar("client_key", { length: 36 }).notNull().unique(), requestHash: varchar("request_hash", { length: 64 }).notNull(), action: varchar("action", { length: 30 }).notNull(),
+  actorId: bigint("actor_id", { mode: "number", unsigned: true }).notNull(), actorName: varchar("actor_name", { length: 100 }).notNull(), actorRole: varchar("actor_role", { length: 30 }).notNull(),
+  quantity: int("quantity"), note: text("note"), statusAfter: varchar("status_after", { length: 30 }).notNull(), createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+}, table => [index("transfer_event_parent").on(table.transferId, table.id)]);
+const privateBlob = customType<{ data: Buffer; driverData: Buffer }>({ dataType: () => "longblob" });
+export const operationFiles = mysqlTable("operation_files", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(), parentType: mysqlEnum("parent_type", ["shipment", "transfer"]).notNull(), parentId: bigint("parent_id", { mode: "number", unsigned: true }).notNull(),
+  stage: varchar("stage", { length: 30 }).notNull(), kind: varchar("kind", { length: 30 }).notNull(), eventId: bigint("event_id", { mode: "number", unsigned: true }),
+  name: varchar("name", { length: 180 }).notNull(), mime: varchar("mime", { length: 50 }).notNull(), size: int("size").notNull(), sha256: varchar("sha256", { length: 64 }).notNull(),
+  clientKey: varchar("client_key", { length: 36 }).unique(),
+  content: privateBlob("content"), uploadedBy: bigint("uploaded_by", { mode: "number", unsigned: true }).notNull(), uploaderName: varchar("uploader_name", { length: 100 }).notNull(), createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
+  removedAt: datetime("removed_at"), removedBy: bigint("removed_by", { mode: "number", unsigned: true }), removalReason: varchar("removal_reason", { length: 1000 }),
+}, table => [index("operation_file_parent").on(table.parentType, table.parentId, table.removedAt)]);

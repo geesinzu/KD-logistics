@@ -1,3 +1,5 @@
+import { TRANSFER_ROLES } from "@contracts/operations";
+import { lazy, Suspense } from "react";
 import { Routes, Route, Navigate } from "react-router";
 import { useAuth } from "./hooks/useAuth";
 import Login from "./pages/Login";
@@ -21,6 +23,13 @@ import Reports from "./pages/Reports";
 import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 import { AppLayout } from "./components/AppLayout";
+
+const Documents = lazy(() => import("./pages/Documents"));
+const Transfers = lazy(() => import("./pages/Transfers"));
+const TransferCreate = lazy(() => import("./pages/TransferCreate"));
+const TransferDetail = lazy(() => import("./pages/TransferDetail"));
+const transferRoles = [...TRANSFER_ROLES];
+function OperationsPage({ children }: { children: React.ReactNode }) { return <Suspense fallback={<div className="operations-message" role="status">Loading workspace…</div>}>{children}</Suspense>; }
 
 function ProtectedRoute({ children, requiredRoles }: { children: React.ReactNode; requiredRoles?: string[] }) {
   const { user, isLoading, isAuthenticated } = useAuth();
@@ -48,6 +57,10 @@ export default function App() {
       {/* KEDI App with bottom nav */}
       <Route element={<AppLayout />}>
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
+        <Route path="/documents" element={<ProtectedRoute><OperationsPage><Documents /></OperationsPage></ProtectedRoute>} />
+        <Route path="/transfers" element={<ProtectedRoute requiredRoles={transferRoles}><OperationsPage><Transfers /></OperationsPage></ProtectedRoute>} />
+        <Route path="/transfers/new" element={<ProtectedRoute requiredRoles={transferRoles.filter(r => r !== "viewer")}><OperationsPage><TransferCreate /></OperationsPage></ProtectedRoute>} />
+        <Route path="/transfers/:id" element={<ProtectedRoute requiredRoles={transferRoles}><OperationsPage><TransferDetail /></OperationsPage></ProtectedRoute>} />
         <Route path="/shipments" element={<ProtectedRoute><Shipments /></ProtectedRoute>} />
         <Route path="/shipments/:id" element={<ProtectedRoute><ShipmentDetail /></ProtectedRoute>} />
         <Route path="/shipments/create" element={<ProtectedRoute requiredRoles={["super_admin","admin","shipment_creator","logistics_officer"]}><CreateShipment /></ProtectedRoute>} />

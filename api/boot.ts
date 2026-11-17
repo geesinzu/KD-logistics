@@ -1,3 +1,4 @@
+import privateFiles from "./private-file-route";
 import { Hono } from "hono";
 import { bodyLimit } from "hono/body-limit";
 import type { HttpBindings } from "@hono/node-server";
@@ -18,6 +19,7 @@ app.use("/api/trpc/*", async (c) => {
     createContext,
   });
 });
+app.route("/api/files", privateFiles);
 app.all("/api/*", (c) => c.json({ error: "Not Found" }, 404));
 
 export default app;
