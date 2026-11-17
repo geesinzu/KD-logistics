@@ -11,7 +11,7 @@ const url = process.env.KEDI_CORRECTION_TEST_URL;
 const input = { shipmentId: 70001, expectedTplId: 10030001, expectedStatus: "at_3pl", correctTplId: 10030002, reason: "Driver dropped at Knightpride; S.generation was incorrectly selected." };
 describe.skipIf(!url)("3PL correction on real MySQL", () => {
   let db: Connection;
-  const context = (tplId?: number) => ({ req: new Request("http://localhost"), resHeaders: new Headers(), ...(tplId ? { tplUser: { id: tplId, tplId, role: "tpl_admin" } } : { user: { id: 1, name: "Test Super Admin", role: "super_admin", status: "active" } }) }) as TrpcContext;
+  const context = (tplId?: number) => ({ req: new Request("http://localhost"), resHeaders: new Headers(), ...(tplId ? { tplUser: { id: tplId, tplId, role: "tpl_admin", status: "active" } } : { user: { id: 1, name: "Test Super Admin", role: "super_admin", status: "active" } }) }) as TrpcContext;
   const api = () => shipmentRouter.createCaller(context());
   const partner = (id: number) => shipmentRouter.createCaller(context(id));
   async function rows(sql: string) { const [result] = await db.query<RowDataPacket[]>(sql); return result; }

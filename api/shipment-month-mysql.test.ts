@@ -11,7 +11,7 @@ const url = process.env.KEDI_SHIPMENT_TEST_URL;
 describe.skipIf(!url)("monthly shipment lists on MySQL", () => {
   let db: Connection;
   function caller(role = "super_admin", branchId?: number) {
-    return shipmentRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), user: { id: 1, role, branchId } } as TrpcContext);
+    return shipmentRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), user: { id: 1, role, branchId, status: "active" } } as TrpcContext);
   }
   beforeAll(async () => {
     const target = new URL(url!);
@@ -68,7 +68,7 @@ describe.skipIf(!url)("monthly shipment lists on MySQL", () => {
     }
   });
   it("keeps separate 3PL accounts out of staff queries", async () => {
-    const api = shipmentRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), tplUser: { id: 1, tplId: 1 } } as TrpcContext);
+    const api = shipmentRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), tplUser: { id: 1, tplId: 1, status: "active" } } as TrpcContext);
     await expect(api.list(month)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     await expect(api.stats(month)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });

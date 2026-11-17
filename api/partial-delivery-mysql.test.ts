@@ -9,7 +9,7 @@ const repair = { shipmentId: 80001, expectedDeliveredQty: 70, expectedRemainingQ
 describe.skipIf(!url)("partial quantity correction on MySQL", () => {
   let db: Connection;
   const admin = (role = "super_admin", status = "active") => shipmentRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), user: { id: 1, name: "Local test admin", role, status } } as TrpcContext);
-  const partner = () => shipmentRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), tplUser: { id: 10, tplId: 10, role: "tpl_admin" } } as TrpcContext);
+  const partner = () => shipmentRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), tplUser: { id: 10, tplId: 10, role: "tpl_admin", status: "active" } } as TrpcContext);
   async function rows(sql: string) { const [result] = await db.query<RowDataPacket[]>(sql); return result; }
   async function seedStale() {
     await db.query("DELETE FROM tracking_events WHERE event_type='tpl_partial_delivery'");

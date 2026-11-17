@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import type { KediRole } from "@contracts/constants";
 import { ROLE_LABELS, KEDI_ROLES } from "@contracts/constants";
 import { toast } from "sonner";
 import { Search, UserPlus, Truck, Trash2 } from "lucide-react";
@@ -19,6 +20,7 @@ function digitsOnly11(v: string) { return v.replace(/\D/g, "").slice(0, 11); }
 
 export default function Users() {
   const { isSuperAdmin } = useAuth();
+  const assignableRoles = KEDI_ROLES.filter(role => isSuperAdmin || !["super_admin", "admin"].includes(role));
   const [editingStaff, setEditingStaff] = useState<{ id: number; name: string; phone: string; email: string; branchId: string; role: string } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -26,7 +28,7 @@ export default function Users() {
 
   // KEDI user dialog
   const [showAdd, setShowAdd] = useState(false);
-  const [newUser, setNewUser] = useState({ name: "", phone: "", role: "driver", password: "", branchId: "19" });
+  const [newUser, setNewUser] = useState({ name: "", phone: "", role: "driver" as KediRole, password: "", branchId: "19" });
 
   // 3PL staff dialog
   const [showAdd3pl, setShowAdd3pl] = useState(false);
@@ -66,7 +68,7 @@ export default function Users() {
     onError: (err) => toast.error(err.message || "Failed to approve user"),
   });
   const createUserMutation = trpc.user.create.useMutation({
-    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); setShowAdd(false); setNewUser({ name: "", phone: "", role: "driver", password: "", branchId: "19" }); toast.success("User created successfully"); },
+    onSuccess: () => { utils.user.list.invalidate(); utils.user.stats.invalidate(); setShowAdd(false); setNewUser({ name: "", phone: "", role: "driver" as KediRole, password: "", branchId: "19" }); toast.success("User created successfully"); },
     onError: (err) => { toast.error(err.message || "Failed to create user"); },
   });
   const create3plUserMutation = trpc.tpl.createUser.useMutation({
@@ -145,19 +147,19 @@ export default function Users() {
                     editStaffMutation.reset();
                     setEditingStaff({ id: u.id, name: u.name, phone: u.phone, email: u.email ?? "", branchId: u.branchId ? String(u.branchId) : "", role: u.role });
                   }}>Edit Staff</Button>}
-                  {u.status === "pending" && (
+                  {u.status === "pending" && (isSuperAdmin || !["super_admin", "admin"].includes(u.role)) && (
                     <Button size="sm" variant="outline" className="h-6 text-[10px] px-2 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100"
                       onClick={() => openReview({ id: u.id, name: u.name, role: u.role, branchId: u.branchId })}>
                       Review
                     </Button>
                   )}
-                  <button
+                  {(isSuperAdmin || !["super_admin", "admin"].includes(u.role)) && <button
                     onClick={() => { if (confirm(`Delete user "${u.name}"? This cannot be undone.`)) deleteUserMutation.mutate({ id: u.id }); }}
                     className="p-1 text-gray-400 hover:text-red-500 transition-colors"
                     title="Delete user"
                   >
                     <Trash2 size={14} />
-                  </button>
+                  </button>}
                 </div>
               </div>
             </CardContent>
@@ -206,9 +208,9 @@ export default function Users() {
               <div><Label>Name</Label><Input value={newUser.name} onChange={e => setNewUser({ ...newUser, name: e.target.value })} placeholder="Full name" /></div>
               <div><Label>Phone</Label><Input value={newUser.phone} onChange={e => setNewUser({ ...newUser, phone: digitsOnly11(e.target.value) })} placeholder="08118018662" inputMode="numeric" maxLength={11} /></div>
               <div><Label>Role</Label>
-                <Select value={newUser.role} onValueChange={v => setNewUser({ ...newUser, role: v, branchId: v === "branch_manager" ? "" : "19" })}>
+                <Select value={newUser.role} onValueChange={v => setNewUser({ ...newUser, role: v as KediRole, branchId: v === "branch_manager" ? "" : "19" })}>
                   <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>{KEDI_ROLES.map(r => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
+                  <SelectContent>{assignableRoles.map(r => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               {newUser.role === "branch_manager" && (
@@ -319,7 +321,7 @@ export default function Users() {
               <div><Label>Assign Role</Label>
                 <Select value={reviewRole} onValueChange={v => { setReviewRole(v); if (v !== "branch_manager" && !reviewBranchId) setReviewBranchId("19"); if (v === "branch_manager") setReviewBranchId(""); }}>
                   <SelectTrigger><SelectValue placeholder="Choose a role..." /></SelectTrigger>
-                  <SelectContent>{KEDI_ROLES.map(r => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
+                  <SelectContent>{assignableRoles.map(r => <SelectItem key={r} value={r}>{ROLE_LABELS[r]}</SelectItem>)}</SelectContent>
                 </Select>
               </div>
               <div><Label>Assign Branch{reviewRole === "branch_manager" ? " *" : " (optional)"}</Label>
@@ -335,7 +337,7 @@ export default function Users() {
                 </Button>
                 <Button className="flex-[2] bg-green-600 hover:bg-green-700"
                   disabled={approveUserMutation.isPending || !reviewRole || (reviewRole === "branch_manager" && !reviewBranchId)}
-                  onClick={() => approveUserMutation.mutate({ id: reviewUser.id, role: reviewRole, branchId: reviewBranchId ? Number(reviewBranchId) : null })}>
+                  onClick={() => approveUserMutation.mutate({ id: reviewUser.id, role: reviewRole as KediRole, branchId: reviewBranchId ? Number(reviewBranchId) : null })}>
                   {approveUserMutation.isPending ? "Approving..." : "Approve & Activate"}
                 </Button>
               </div>

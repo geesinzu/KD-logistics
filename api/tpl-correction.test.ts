@@ -25,7 +25,7 @@ describe("correction access", () => {
     await expect(caller("super_admin", status).correct3plAssignment(input)).rejects.toMatchObject({ code: "FORBIDDEN" }); expect(getDb).not.toHaveBeenCalled();
   });
   it("requires authentication and excludes 3PL accounts", async () => {
-    for (const identity of [{}, { tplUser: { id: 1, tplId: 10030001 } }]) {
+    for (const identity of [{}, { tplUser: { id: 1, tplId: 10030001, status: "active" } }]) {
       const api = shipmentRouter.createCaller({ req: new Request("http://localhost"), resHeaders: new Headers(), ...identity } as TrpcContext);
       await expect(api.correct3plAssignment(input)).rejects.toMatchObject({ code: "UNAUTHORIZED" });
     }
