@@ -1748,3 +1748,57 @@
     font-size: inherit;
   }
 }
+
+.report-print-dialog { max-width: 610px; max-height: 90dvh; overflow-y: auto; }
+.report-print-presets { display: flex; flex-wrap: wrap; gap: 8px; }
+.report-print-presets button { gap: 6px; font-size: 12px; }
+.report-print-choices { border: 1px solid #e1e7dd; border-radius: 12px; overflow: hidden; }
+.report-print-choices > label { display: flex; gap: 12px; align-items: flex-start; padding: 13px 15px; cursor: pointer; }
+.report-print-choices > label + label { border-top: 1px solid #edf0e9; }
+.report-print-choices > label:has(input:checked) { background: #f1f5eb; }
+.report-print-choices input { margin-top: 4px; accent-color: #173850; }
+.report-print-choices strong { display: flex; gap: 8px; align-items: center; font-size: 13px; font-weight: 600; color: #29455a; }
+.report-print-choices strong small { background: #f8eddb; padding: 2px 6px; border-radius: 4px; color: #946b37; font-size: 10px; }
+.report-print-choices label > span > span { display: block; font-size: 11px; line-height: 1.6; color: #72816e; margin-top: 4px; }
+.report-print-hint { font-size: 11px; color: #6c7d6a; line-height: 1.7; }
+.report-print-footer { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+.report-print-footer > span { color: #6e7f6b; font-size: 12px; }
+.report-print-footer button { gap: 8px; }
+.delivery-brief .late-delivery-summary { display: flex; align-items: center; gap: 10px; padding: 18px 20px; background: #fbf5e9; border: 1px solid #eee1c6; border-radius: 11px; margin-bottom: 18px; }
+.delivery-brief .late-delivery-summary > strong { font-size: 28px; color: #956f3e; }
+.delivery-brief .late-delivery-summary > span { font-size: 12px; color: #7e623d; white-space: nowrap; }
+.delivery-brief .late-delivery-summary > p { margin-left: 18px; color: #7c765f; font-size: 11px; line-height: 1.7; }
+.delivery-brief .late-delivery-table a { color: #29516a; text-decoration: underline; text-underline-offset: 3px; }
+.delivery-brief .late-days { color: #946c37; white-space: nowrap; }
+.delivery-brief .late-delivery-note { font-size: 11px; line-height: 1.75; color: #6f7e69; margin-top: 12px; }
+@media (max-width: 767px) {
+ .report-print-dialog { width: calc(100% - 24px); max-height: 90dvh; }
+ .delivery-brief .late-delivery-summary { flex-wrap: wrap; }
+ .delivery-brief .late-delivery-summary > p { flex-basis: 100%; margin-left: 0; }
+}
+@media print {
+ body:has(.delivery-brief) .ops-mobile-shortcuts { display: none !important; }
+ .delivery-brief [data-print-omit="true"],
+ .delivery-brief .title-row,
+ .delivery-brief .late-delivery-summary,
+ .delivery-brief .late-delivery-note { display: none !important; }
+ .delivery-brief .report-print-heading { margin: 0 0 14px; color: #17344c; }
+ .delivery-brief .report-print-heading > div { display: flex; align-items: center; gap: 18px; margin-bottom: 10px; }
+ .delivery-brief .report-print-heading img { width: 76px; height: auto; }
+ .delivery-brief .report-print-heading h1 { font-size: 21pt; margin: 0; }
+ .delivery-brief .report-print-heading p { font-size: 8pt; line-height: 1.5; margin: 4px 0; }
+ .delivery-brief .late-delivery-table a { color: inherit; text-decoration: none; }
+ .delivery-brief .late-delivery-table a::after { content: none !important; }
+ .delivery-brief .late-days { color: #17344c; }
+ .delivery-brief #brief-late .view-intro p { font-size: 8pt; }
+}
+.report-print-dialog { display: flex; flex-direction: column; overflow: hidden; }
+.report-print-dialog > :not(.report-print-choices) { flex-shrink: 0; }
+.report-print-dialog .report-print-choices { flex: 1 1 auto; min-height: 80px; overflow-y: auto; }
+.report-print-dialog #report-print-title:focus { outline: none; }
+@media (max-width: 767px) { .report-print-dialog { padding: 20px; } }
+@media print {
+ body:has(.delivery-brief) { overflow: visible !important; height: auto !important; margin: 0 !important; }
+ .delivery-brief .late-delivery-print-count { font-size: 8pt; margin: 0 0 8px; }
+ .delivery-brief .metric-tip { display: none !important; }
+}
