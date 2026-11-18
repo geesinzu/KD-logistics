@@ -1,4 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
+import { flushSync } from "react-dom";
+import { ReportPrintOptions } from "@/components/reports/ReportPrintOptions";
+import { LateDeliveries } from "@/components/reports/LateDeliveries";
+import {
+  concisePrint,
+  deliveredDaysLate,
+  deliveredLateRows,
+  PRINT_PARTS,
+} from "@contracts/report-print";
+import type { PrintSelection } from "@contracts/report-print";
 import { Link } from "react-router";
 import {
   Calendar,
@@ -27,11 +37,12 @@ import {
 } from "@contracts/delivery-brief";
 import "./delivery-brief.css";
 
-type View = "overview" | "branches" | "partners" | "exceptions";
+type View = "overview" | "branches" | "partners" | "late" | "exceptions";
 const views: { key: View; label: string }[] = [
   { key: "overview", label: "Executive brief" },
   { key: "branches", label: "Branch performance" },
   { key: "partners", label: "Partner scorecards" },
+  { key: "late", label: "Delivered after ETA" },
   { key: "exceptions", label: "Follow-up queue" },
 ];
 const fmt = (n: number | null) =>
@@ -83,6 +94,9 @@ export default function Reports() {
   const [queue, setQueue] = useState("overdue");
   const [page, setPage] = useState(1);
   const [printing, setPrinting] = useState(false);
+  const [printOptions, setPrintOptions] = useState(false);
+  const [printSelection, setPrintSelection] =
+    useState<PrintSelection>(concisePrint);
   const [detail, setDetail] = useState<{
     title: string;
     rows?: BriefRow[];
@@ -109,6 +123,7 @@ export default function Reports() {
   const data = range.value ? query.data : undefined;
   const rows = data?.current ?? EMPTY_ROWS;
   const prior = data?.previous ?? EMPTY_ROWS;
+  const lateRows = useMemo(() => deliveredLateRows(rows), [rows]);
   const s = summarizeBrief(rows),
     p = summarizeBrief(prior);
   const byBranch = groups(rows, "branch"),
@@ -154,12 +169,35 @@ export default function Reports() {
     ...daily.flatMap(d => [d.current, compare ? d.previous : 0])
   );
   useEffect(() => {
+    const before = () =>
+      flushSync(() => {
+        if (!PRINT_PARTS.some(part => printSelection[part.key]))
+          setPrintSelection(concisePrint());
+        setPrinting(true);
+        setPrintOptions(false);
+        setDetail(null);
+      });
     const done = () => setPrinting(false);
+    window.addEventListener("beforeprint", before);
     window.addEventListener("afterprint", done);
-    return () => window.removeEventListener("afterprint", done);
-  }, []);
+    return () => {
+      window.removeEventListener("beforeprint", before);
+      window.removeEventListener("afterprint", done);
+    };
+  }, [printSelection]);
   function printReport() {
-    setPrinting(true);
+    if (
+      !data ||
+      query.isFetching ||
+      query.error ||
+      !PRINT_PARTS.some(part => printSelection[part.key])
+    )
+      return;
+    flushSync(() => {
+      setPrinting(true);
+      setPrintOptions(false);
+      setDetail(null);
+    });
     requestAnimationFrame(() => requestAnimationFrame(() => window.print()));
   }
   function resetFilter(update: () => void) {
@@ -184,6 +222,8 @@ export default function Reports() {
         "Created UTC",
         "3PL custody UTC",
         "Service receipt UTC",
+        "3PL ETA (Lagos date)",
+        "Days delivered after ETA",
         "Final receipt/ack UTC",
         "Stage",
         "Past ETA hours",
@@ -197,6 +237,8 @@ export default function Reports() {
         iso(r.created),
         iso(r.handoff),
         iso(r.serviceAt),
+        r.serviceEta === null ? "" : calendarDate(new Date(r.serviceEta)),
+        r.onTime === true ? 0 : deliveredDaysLate(r),
         iso(r.finalAt),
         r.stage,
         r.overdueHours,
@@ -320,13 +362,59 @@ export default function Reports() {
             <button
               className="btn primary"
               disabled={!data || query.isFetching || !!query.error}
-              onClick={printReport}
+              onClick={() => setPrintOptions(true)}
             >
               <Printer size={14} />
               Print / Save PDF
             </button>
           </div>
         </div>
+        {data && (
+          <header className="print-only report-print-heading">
+            <div>
+              <img src="/kedi-logo.png" alt="KEDI Healthcare" />
+              <h1>Delivery report</h1>
+            </div>
+            <p>
+              <strong>Shipments created:</strong> {from} to {to} ·{" "}
+              {data.offices.find(b => String(b.id) === branchId)?.name ??
+                (branchId ? `Branch #${branchId}` : "All branches")}{" "}
+              ·{" "}
+              {data.partners.find(p => String(p.id) === partnerId)?.name ??
+                (partnerId ? `3PL #${partnerId}` : "All 3PLs")}
+            </p>
+            <p>
+              Current recorded outcomes · Generated{" "}
+              {date(data.generatedAt.getTime())} WAT
+              {compare
+                ? ` · Compared with ${data.previousFrom} to ${data.previousTo}`
+                : ""}
+            </p>
+            {printSelection.late && (
+              <p>
+                Late deliveries use the recorded 3PL ETA and actual arrival date
+                in Nigeria. Hub routes use arrival at the hub. Missing dates are
+                excluded.
+              </p>
+            )}
+            <p>
+              Included:{" "}
+              {PRINT_PARTS.filter(part => printSelection[part.key])
+                .map(part => part.label)
+                .join(" · ")}
+            </p>
+            {printSelection.followups && (
+              <p>
+                Follow-up selection:{" "}
+                {queue === "ack"
+                  ? "Awaiting direct acknowledgement"
+                  : queue === "missing"
+                    ? "Missing stage ETA"
+                    : "Past stage ETA"}
+              </p>
+            )}
+          </header>
+        )}
         <div className="toolbar">
           <div className="filters">
             <label className="filter">
@@ -425,6 +513,7 @@ export default function Reports() {
             >
               {v.label}
               {v.key === "exceptions" && data && <small>{s.overdue}</small>}
+              {v.key === "late" && data && <small>{lateRows.length}</small>}
             </button>
           ))}
         </nav>
@@ -449,11 +538,19 @@ export default function Reports() {
               {query.isFetching && <p role="status">Refreshing report…</p>}
               <section
                 className={`view ${view === "overview" ? "active" : ""}`}
+                data-print-omit={
+                  !printSelection.summary &&
+                  !printSelection.analysis &&
+                  !printSelection.actions
+                }
                 id="brief-overview"
                 role="tabpanel"
                 aria-labelledby="brief-tab-overview"
               >
-                <article className="brief">
+                <article
+                  className="brief"
+                  data-print-omit={!printSelection.summary}
+                >
                   <div>
                     <div className="brief-label">
                       <Sparkles size={13} />
@@ -464,8 +561,9 @@ export default function Reports() {
                     </h2>
                     <p>
                       {s.onTime} of {s.eligible} measured service completions
-                      were on time. {s.open} shipments have no confirmed final
-                      receipt; {s.overdue} are past their current stage’s ETA.{" "}
+                      were on time. {lateRows.length} were delivered after ETA.{" "}
+                      {s.open} shipments have no confirmed final receipt;{" "}
+                      {s.overdue} are past their current stage’s ETA.{" "}
                       {s.missingEta} open shipments have no usable stage ETA.
                     </p>
                   </div>
@@ -482,7 +580,10 @@ export default function Reports() {
                     </button>
                   </div>
                 </article>
-                <div className="metrics">
+                <div
+                  className="metrics"
+                  data-print-omit={!printSelection.summary}
+                >
                   {[
                     {
                       label: "Shipments in cohort",
@@ -534,7 +635,10 @@ export default function Reports() {
                     </article>
                   ))}
                 </div>
-                <div className="main-grid">
+                <div
+                  className="main-grid"
+                  data-print-omit={!printSelection.analysis}
+                >
                   <section className="panel">
                     <div className="panel-head">
                       <div>
@@ -642,7 +746,8 @@ export default function Reports() {
                               />
                             </div>
                             <div className="stage-sample">
-                              Based on {stage.count} shipment{stage.count === 1 ? "" : "s"}
+                              Based on {stage.count} shipment
+                              {stage.count === 1 ? "" : "s"}
                             </div>
                           </div>
                         </div>
@@ -655,7 +760,10 @@ export default function Reports() {
                     </div>
                   </section>
                 </div>
-                <div className="bottom-grid">
+                <div
+                  className="bottom-grid"
+                  data-print-omit={!printSelection.actions}
+                >
                   <section className="panel">
                     <div className="panel-head">
                       <div>
@@ -766,6 +874,7 @@ export default function Reports() {
               </section>
               <section
                 className={`view ${view === "branches" ? "active" : ""}`}
+                data-print-omit={!printSelection.branches}
                 id="brief-branches"
                 role="tabpanel"
                 aria-labelledby="brief-tab-branches"
@@ -799,7 +908,7 @@ export default function Reports() {
                       </tr>
                     </thead>
                     <tbody>
-                      {matchingBranches.map(g => (
+                      {(printing ? byBranch : matchingBranches).map(g => (
                         <tr key={g.id}>
                           <td>
                             <button
@@ -820,7 +929,7 @@ export default function Reports() {
                       ))}
                     </tbody>
                   </table>
-                  {!matchingBranches.length && (
+                  {!(printing ? byBranch : matchingBranches).length && (
                     <p className="empty">
                       No branch records match these filters.
                     </p>
@@ -829,6 +938,7 @@ export default function Reports() {
               </section>
               <section
                 className={`view ${view === "partners" ? "active" : ""}`}
+                data-print-omit={!printSelection.partners}
                 id="brief-partners"
                 role="tabpanel"
                 aria-labelledby="brief-tab-partners"
@@ -912,7 +1022,28 @@ export default function Reports() {
                 </div>
               </section>
               <section
+                className={`view ${view === "late" ? "active" : ""}`}
+                data-print-omit={!printSelection.late}
+                id="brief-late"
+                role="tabpanel"
+                aria-labelledby="brief-tab-late"
+              >
+                <LateDeliveries
+                  rows={lateRows}
+                  printing={printing}
+                  page={page}
+                  setPage={setPage}
+                  exportCsv={items =>
+                    exportCsv(
+                      items,
+                      `KEDI-delivered-after-ETA-${from}-${to}.csv`
+                    )
+                  }
+                />
+              </section>
+              <section
                 className={`view ${view === "exceptions" ? "active" : ""}`}
+                data-print-omit={!printSelection.followups}
                 id="brief-exceptions"
                 role="tabpanel"
                 aria-labelledby="brief-tab-exceptions"
@@ -1049,6 +1180,15 @@ export default function Reports() {
             </>
           )
         )}
+        <ReportPrintOptions
+          open={printOptions}
+          setOpen={setPrintOptions}
+          selection={printSelection}
+          setSelection={setPrintSelection}
+          onPrint={printReport}
+          lateCount={lateRows.length}
+          ready={!!data && !query.isFetching && !query.error}
+        />
         <Dialog
           open={!!detail}
           onOpenChange={open => {
