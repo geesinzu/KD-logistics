@@ -169,6 +169,71 @@ describe.skipIf(!url)("department package workflow on isolated MySQL", () => {
       code: "CONFLICT",
     });
   });
+  it("allows Admin to delete an unassigned request, retains history and invalidates all label lookups", async () => {
+    const r = await request(2);
+    await api("logistics_officer", 4).receiveOffice({
+      packageId: r.packages[0].id,
+    });
+    for (const [role, user] of [
+      ["department_staff", 2],
+      ["logistics_officer", 4],
+      ["warehouse_supply", 6],
+      ["branch_manager", 7],
+    ] as const)
+      await expect(
+        api(role, user, 2).deleteRequest({
+          requestId: r.id,
+          reason: "Remove test request",
+        })
+      ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await api("admin", 9).deleteRequest({
+      requestId: r.id,
+      reason: "Duplicate department transaction",
+    });
+    await api("admin", 9).deleteRequest({
+      requestId: r.id,
+      reason: "Duplicate department transaction",
+    });
+    expect(await api("admin", 9).list()).toHaveLength(0);
+    expect(await api("department_staff", 2).list()).toHaveLength(0);
+    await expect(
+      api("department_staff", 2).detail({ requestId: r.id })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      api("logistics_officer", 4).scan({ code: `DP-${r.id}/1` })
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    const detail = await api().detail({ requestId: r.id });
+    expect(detail.packages[0].receivedOfficeAt).not.toBeNull();
+    expect(detail.history.filter(e => e.action === "deleted")).toHaveLength(2);
+    expect(
+      await rows(
+        `SELECT id FROM activity_log WHERE action='delete_department_request' AND entity_id=${r.id}`
+      )
+    ).toHaveLength(1);
+  });
+  it("blocks deletion while any package remains included in a shipment", async () => {
+    const r = await request(1),
+      id = r.packages[0].id;
+    await api("logistics_officer", 4).receiveOffice({ packageId: id });
+    await include([id]);
+    await expect(
+      api().deleteRequest({ requestId: r.id, reason: "Unsafe removal attempt" })
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await api().list()).toHaveLength(1);
+  });
+  it("rolls back deletion if its retained audit history cannot be written", async () => {
+    const r = await request(1);
+    await db.query(
+      "CREATE TRIGGER fail_department_event BEFORE INSERT ON department_package_events FOR EACH ROW BEGIN IF NEW.action='deleted' THEN SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT='test failure'; END IF; END"
+    );
+    await expect(
+      api().deleteRequest({ requestId: r.id, reason: "Test audit rollback" })
+    ).rejects.toThrow();
+    expect(
+      (await api("department_staff", 2).detail({ requestId: r.id })).cancelledAt
+    ).toBeNull();
+    expect(await api().list()).toHaveLength(1);
+  });
   it("changes department scope immediately when Super Admin reassigns the account", async () => {
     const r = await request(1);
     await api().assignStaff({ userId: 2, departmentId: 2 });
