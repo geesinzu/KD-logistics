@@ -2,7 +2,7 @@ import { z } from "zod";
 import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import { TRPCError } from "@trpc/server";
-import { and, eq, desc, asc, inArray, isNull, like } from "drizzle-orm";
+import { and, eq, desc, asc, inArray, isNull, like, sql } from "drizzle-orm";
 import {
   departments,
   departmentStaff,
@@ -90,6 +90,17 @@ async function membership(userId: number) {
     });
   return row;
 }
+// Deletion is an immutable event so existing installations need no schema change.
+const notDeleted = sql`NOT EXISTS (SELECT 1 FROM department_packages dp INNER JOIN department_package_events de ON de.package_id=dp.id WHERE dp.request_id=${requests.id} AND de.action='deleted')`;
+async function deleted(requestId: number) {
+  const [row] = await getDb()
+    .select({ id: events.id })
+    .from(events)
+    .innerJoin(packages, eq(packages.id, events.packageId))
+    .where(and(eq(packages.requestId, requestId), eq(events.action, "deleted")))
+    .limit(1);
+  return !!row;
+}
 async function requestAccess(
   user: { id: number; role: string; branchId: number | null },
   requestId: number
@@ -98,7 +109,12 @@ async function requestAccess(
     .select()
     .from(requests)
     .where(eq(requests.id, requestId));
-  if (!row) throw new TRPCError({ code: "NOT_FOUND" });
+  if (
+    !row ||
+    ((await deleted(requestId)) &&
+      !["admin", "super_admin"].includes(user.role))
+  )
+    throw new TRPCError({ code: "NOT_FOUND" });
   if (
     user.role === "department_staff" &&
     row.departmentId !== (await membership(user.id)).id
@@ -293,7 +309,7 @@ export const departmentRouter = createRouter({
         .default({ search: "", page: 1 })
     )
     .query(async ({ ctx, input }) => {
-      const conditions = [];
+      const conditions = [notDeleted];
       if (ctx.user.role === "department_staff")
         conditions.push(
           eq(requests.departmentId, (await membership(ctx.user.id)).id)
@@ -437,6 +453,73 @@ export const departmentRouter = createRouter({
         packages: ps.map(p => ({ ...p.package, trackingId: p.trackingId })),
         history,
       };
+    }),
+  deleteRequest: feature
+    .input(
+      z.object({ requestId: id, reason: z.string().trim().min(5).max(500) })
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (!["admin", "super_admin"].includes(ctx.user.role))
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only Admin or Super Admin can delete package requests.",
+        });
+      return getDb().transaction(async tx => {
+        const [r] = await tx
+          .select()
+          .from(requests)
+          .where(eq(requests.id, input.requestId))
+          .for("update");
+        if (!r) throw new TRPCError({ code: "NOT_FOUND" });
+        const ps = await tx
+          .select()
+          .from(packages)
+          .where(eq(packages.requestId, r.id))
+          .orderBy(asc(packages.id))
+          .for("update");
+        if (ps.some(p => p.shipmentId || p.receivedBranchAt))
+          throw new TRPCError({
+            code: "CONFLICT",
+            message:
+              "Remove packages from their shipment before deletion. Dispatched or branch-received packages must retain their shipment record.",
+          });
+        const [prior] = ps.length
+          ? await tx
+              .select({ id: events.id })
+              .from(events)
+              .where(
+                and(
+                  eq(events.packageId, ps[0].id),
+                  eq(events.action, "deleted")
+                )
+              )
+              .limit(1)
+          : [];
+        if (prior) return { success: true };
+        await tx
+          .update(requests)
+          .set({ cancelledAt: r.cancelledAt ?? new Date() })
+          .where(eq(requests.id, r.id));
+        for (const p of ps)
+          await tx
+            .insert(events)
+            .values({
+              packageId: p.id,
+              actorId: ctx.user.id,
+              action: "deleted",
+              note: input.reason,
+            });
+        await tx
+          .insert(activityLog)
+          .values({
+            userId: ctx.user.id,
+            action: "delete_department_request",
+            entityType: "department_request",
+            entityId: r.id,
+            details: { reason: input.reason },
+          });
+        return { success: true };
+      });
     }),
   cancel: feature
     .input(

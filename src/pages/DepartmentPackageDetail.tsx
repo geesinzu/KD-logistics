@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Link, useParams, useSearchParams } from "react-router";
+import { Link, useParams, useSearchParams, useNavigate } from "react-router";
 import QRCode from "qrcode";
 import { trpc } from "@/providers/trpc";
 import { useAuth } from "@/hooks/useAuth";
@@ -13,6 +13,7 @@ import {
 import { toast } from "sonner";
 import "@/components/departments/packages.css";
 function Detail() {
+  const navigate = useNavigate();
   const id = Number(useParams().id);
   const [params] = useSearchParams();
   const highlight = Number(params.get("package"));
@@ -35,6 +36,16 @@ function Detail() {
   });
   const ack = trpc.department.acknowledge.useMutation({
     onSuccess: changed,
+    onError: e => toast.error(e.message),
+  });
+  const remove = trpc.department.deleteRequest.useMutation({
+    onSuccess: () => {
+      void utils.department.invalidate();
+      toast.success(
+        "Package request deleted. Its activity history is retained."
+      );
+      navigate("/department-packages");
+    },
     onError: e => toast.error(e.message),
   });
   const cancel = trpc.department.cancel.useMutation({
@@ -156,6 +167,37 @@ function Detail() {
           >
             Return / cancel request
           </Button>
+        )}
+      {["admin", "super_admin"].includes(user?.role ?? "") && (
+        <Button
+          variant="destructive"
+          disabled={
+            remove.isPending ||
+            r.packages.some(p => !!p.shipmentId || !!p.receivedBranchAt)
+          }
+          onClick={() => {
+            const reason = window.prompt(
+              "Delete this package request from active views? Its history will be kept. Enter a reason (at least 5 characters)."
+            );
+            if (
+              reason &&
+              window.confirm(
+                "Delete this request and invalidate all its labels?"
+              )
+            )
+              remove.mutate({ requestId: id, reason });
+          }}
+        >
+          Delete package request
+        </Button>
+      )}
+      {["admin", "super_admin"].includes(user?.role ?? "") &&
+        r.packages.some(p => !!p.shipmentId || !!p.receivedBranchAt) && (
+          <p className="text-sm text-ink-soft">
+            To delete this request, first remove its packages from the shipment
+            before dispatch. Packages already dispatched or received must retain
+            their shipment record.
+          </p>
         )}
       {labels && (
         <section className="ops-panel p-5 space-y-4">
@@ -299,6 +341,7 @@ function Detail() {
                     received_branch: "Received by branch",
                     released: "Returned to waiting",
                     cancelled: "Request cancelled",
+                    deleted: "Package request deleted",
                   } as Record<string, string>
                 )[e.action] ?? e.action}
               </strong>
