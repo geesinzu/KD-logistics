@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { eq, and } from "drizzle-orm";
 import { pushSubscriptions } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, authedQuery, tplQuery, publicQuery } from "./middleware";
+import { createRouter, sessionQuery, staffQuery, tplQuery, publicQuery } from "./middleware";
 import { getVapidPublicKey, isPushConfigured, deliverPush } from "./lib/push";
 
 const subscriptionInput = z.object({
@@ -40,7 +40,7 @@ export const pushRouter = createRouter({
   // browser can say "subscribed" while the server has no row for it (row
   // expired and was cleaned up, or the phone was last registered by someone
   // else), in which case the toggle shows "enabled" but nothing is ever sent.
-  status: authedQuery
+  status: sessionQuery
     .input(z.object({ endpoint: z.string(), kind: z.enum(["kedi", "tpl"]) }))
     .query(async ({ input, ctx }) => {
       const rows = await getDb()
@@ -58,7 +58,7 @@ export const pushRouter = createRouter({
     }),
 
   // KEDI users subscribe
-  subscribe: authedQuery
+  subscribe: staffQuery
     .input(subscriptionInput)
     .mutation(async ({ input, ctx }) => {
       const db = getDb();
@@ -99,11 +99,12 @@ export const pushRouter = createRouter({
 
   // Removes one device. Disabling on one phone must not switch off the same
   // person's other devices.
-  unsubscribe: authedQuery
+  unsubscribe: sessionQuery
     .input(z.object({ endpoint: z.string() }))
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const db = getDb();
-      await db.delete(pushSubscriptions).where(eq(pushSubscriptions.endpoint, input.endpoint));
+      const owner=ctx.user ? eq(pushSubscriptions.userId,ctx.user.id) : eq(pushSubscriptions.tplUserId,ctx.tplUser!.id);
+      await db.delete(pushSubscriptions).where(and(eq(pushSubscriptions.endpoint, input.endpoint),owner));
       return { success: true };
     }),
 });

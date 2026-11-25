@@ -32,6 +32,7 @@ export const users = mysqlTable("users", {
     "driver",
     "warehouse_supply",
     "viewer",
+    "department_staff",
   ]).default("viewer").notNull(),
   status: mysqlEnum("status", ["pending", "active", "suspended"]).default("pending").notNull(),
   branchId: bigint("branch_id", { mode: "number", unsigned: true }),
@@ -298,3 +299,44 @@ export const operationFiles = mysqlTable("operation_files", {
   content: privateBlob("content"), uploadedBy: bigint("uploaded_by", { mode: "number", unsigned: true }).notNull(), uploaderName: varchar("uploader_name", { length: 100 }).notNull(), createdAt: datetime("created_at").notNull().default(sql`CURRENT_TIMESTAMP`),
   removedAt: datetime("removed_at"), removedBy: bigint("removed_by", { mode: "number", unsigned: true }), removalReason: varchar("removal_reason", { length: 1000 }),
 }, table => [index("operation_file_parent").on(table.parentType, table.parentId, table.removedAt)]);
+
+// Department requests are separate from stock and shipment delivery quantities.
+export const departments = mysqlTable("departments", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  name: varchar("name", { length: 100 }).notNull().unique(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+export const departmentStaff = mysqlTable("department_staff", {
+  userId: bigint("user_id", { mode: "number", unsigned: true }).primaryKey(),
+  departmentId: bigint("department_id", { mode: "number", unsigned: true }).notNull(),
+});
+export const departmentRequests = mysqlTable("department_requests", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  departmentId: bigint("department_id", { mode: "number", unsigned: true }).notNull(),
+  destBranchId: bigint("dest_branch_id", { mode: "number", unsigned: true }).notNull(),
+  description: varchar("description", { length: 200 }).notNull(),
+  createdBy: bigint("created_by", { mode: "number", unsigned: true }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  cancelledAt: timestamp("cancelled_at"),
+}, t => [index("department_request_scope").on(t.departmentId, t.destBranchId)]);
+export const departmentPackages = mysqlTable("department_packages", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  requestId: bigint("request_id", { mode: "number", unsigned: true }).notNull(),
+  packageNumber: int("package_number").notNull(),
+  token: varchar("token", { length: 64 }).notNull().unique(),
+  receivedOfficeAt: timestamp("received_office_at"),
+  receivedOfficeBy: bigint("received_office_by", { mode: "number", unsigned: true }),
+  shipmentId: bigint("shipment_id", { mode: "number", unsigned: true }),
+  includedAt: timestamp("included_at"),
+  includedBy: bigint("included_by", { mode: "number", unsigned: true }),
+  receivedBranchAt: timestamp("received_branch_at"),
+  receivedBranchBy: bigint("received_branch_by", { mode: "number", unsigned: true }),
+}, t => [index("department_package_request").on(t.requestId), index("department_package_shipment").on(t.shipmentId)]);
+export const departmentPackageEvents = mysqlTable("department_package_events", {
+  id: bigint("id", { mode: "number", unsigned: true }).autoincrement().primaryKey(),
+  packageId: bigint("package_id", { mode: "number", unsigned: true }).notNull(),
+  actorId: bigint("actor_id", { mode: "number", unsigned: true }).notNull(),
+  action: varchar("action", { length: 40 }).notNull(),
+  note: varchar("note", { length: 500 }),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+}, t => [index("department_package_history").on(t.packageId)]);

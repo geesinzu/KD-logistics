@@ -1,3 +1,4 @@
+import { PACKAGE_READ_ROLES } from "@contracts/department-packages";
 import { Outlet, NavLink, useLocation } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { useUnreadNotificationCount } from "@/hooks/useNotifications";
@@ -15,7 +16,9 @@ export function AppLayout() {
   usePushSelfHeal();
   const role = user?.role;
   const isAdmin = role === "super_admin" || role === "admin";
-  const tabs = [
+  const isDepartment = role === "department_staff";
+  const packageAccess = PACKAGE_READ_ROLES.some(r=>r===role);
+  const tabs = isDepartment ? [{path:"/department-packages",icon:Package,label:"Our packages"},{path:"/profile",icon:UserCircle,label:"Profile"}] : [
     { path: "/", icon: LayoutDashboard, label: "Overview" },
     { path: "/shipments", icon: Package, label: "Shipments" },
     ...(isAdmin ? [{ path: "/users", icon: Users, label: "Users" }, { path: "/branches", icon: Building2, label: "Branches" }] : []),
@@ -37,7 +40,8 @@ export function AppLayout() {
         <p className="workspace-nav-label">WORKSPACE</p>
         <nav aria-label="Desktop navigation">
           {tabs.map(tab => <NavLink key={tab.path} to={tab.path} end={tab.path === "/"} className={({ isActive }) => `workspace-nav-link ${isActive ? "active" : ""}`}><tab.icon size={19} /><span>{tab.label}</span></NavLink>)}
-          <NavLink to="/documents" className={({ isActive }) => `workspace-nav-link ${isActive ? "active" : ""}`}><FolderLock size={19} /><span>Documents</span></NavLink>
+          {!isDepartment && <NavLink to="/documents" className={({ isActive }) => `workspace-nav-link ${isActive ? "active" : ""}`}><FolderLock size={19} /><span>Documents</span></NavLink>}
+          {packageAccess && !isDepartment && <NavLink to="/department-packages" className={({isActive})=>`workspace-nav-link ${isActive?"active":""}`}><Package size={19}/><span>Department packages</span></NavLink>}
           {canTransfer && <NavLink to="/transfers" className={({ isActive }) => `workspace-nav-link ${isActive ? "active" : ""}`}><ArrowLeftRight size={19} /><span>Branch transfers</span></NavLink>}
           {canReport && <NavLink to="/reports" className={({ isActive }) => `workspace-nav-link ${isActive ? "active" : ""}`}><BarChart3 size={19} /><span>Reports</span></NavLink>}
         </nav>
@@ -50,9 +54,9 @@ export function AppLayout() {
         <header className="workspace-header">
           <NavLink to="/" className="workspace-mobile-logo"><img src="/kedi-logo.png" alt="KEDI Healthcare" /></NavLink>
           <div className="workspace-breadcrumb">Workspace <span>/</span><strong>{title}</strong></div>
-          <div className="workspace-header-actions"><span className="workspace-role">{roleLabel}</span><NavLink to="/notifications" className="workspace-notifications" aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`}><Bell size={21} />{unreadCount > 0 && <span>{unreadCount > 9 ? "9+" : unreadCount}</span>}</NavLink><NavLink to="/profile" className="workspace-avatar" aria-label="Your profile">{initials}</NavLink></div>
+          <div className="workspace-header-actions"><span className="workspace-role">{roleLabel}</span>{!isDepartment && <NavLink to="/notifications" className="workspace-notifications" aria-label={`Notifications${unreadCount ? `, ${unreadCount} unread` : ""}`}><Bell size={21} />{unreadCount > 0 && <span>{unreadCount > 9 ? "9+" : unreadCount}</span>}</NavLink>}<NavLink to="/profile" className="workspace-avatar" aria-label="Your profile">{initials}</NavLink></div>
         </header>
-      <nav className="ops-mobile-shortcuts" aria-label="Operations workspaces"><NavLink to="/documents"><FolderLock size={16} /> Documents</NavLink>{canTransfer && <NavLink to="/transfers"><ArrowLeftRight size={16} /> Branch transfers</NavLink>}</nav>
+      {!isDepartment && <nav className="ops-mobile-shortcuts" aria-label="Operations workspaces">{packageAccess && <NavLink to="/department-packages"><Package size={16}/> Department packages</NavLink>}<NavLink to="/documents"><FolderLock size={16} /> Documents</NavLink>{canTransfer && <NavLink to="/transfers"><ArrowLeftRight size={16} /> Branch transfers</NavLink>}</nav>}
         <main id="workspace-content" tabIndex={-1} className="workspace-content"><Outlet /></main>
       </div>
       <nav className="workspace-mobile-nav" aria-label="Mobile navigation">{tabs.map(tab => <NavLink key={tab.path} to={tab.path} end={tab.path === "/"} className={({ isActive }) => isActive ? "active" : ""}><tab.icon size={21} /><span>{tab.label}</span></NavLink>)}</nav>

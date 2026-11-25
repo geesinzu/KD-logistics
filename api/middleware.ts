@@ -65,10 +65,16 @@ function requireRoles(roles: string[]) {
 }
 
 // ── BASE PROCEDURES ──
-export const authedQuery = t.procedure.use(activeAccount).use(requireAuth);
+const excludeDepartment = t.middleware(({ctx,next}) => {
+  if (ctx.user?.role === "department_staff") throw new TRPCError({code:"FORBIDDEN",message:"Department accounts can access their department packages only."});
+  return next();
+});
+export const sessionQuery = t.procedure.use(activeAccount).use(requireAuth);
+export const authedQuery = sessionQuery.use(excludeDepartment);
 
 // KEDI-only procedures
-export const kediQuery = t.procedure.use(activeAccount).use(requireKediUser);
+export const staffQuery = t.procedure.use(activeAccount).use(requireKediUser);
+export const kediQuery = staffQuery.use(excludeDepartment);
 
 // TPL-only procedures
 export const tplQuery = t.procedure.use(activeAccount).use(requireTplUser);

@@ -29,9 +29,11 @@ export const KEDI_ROLES = [
   "driver",
   "warehouse_supply",
   "viewer",
+  "department_staff",
 ] as const;
 
 export const ROLE_LABELS: Record<KediRole, string> = {
+  department_staff: "Department Staff",
   super_admin: "Super Admin",
   admin: "Admin",
   shipment_creator: "Shipment Creator",
@@ -43,6 +45,7 @@ export const ROLE_LABELS: Record<KediRole, string> = {
 };
 
 export const ROLE_COLORS: Record<KediRole, string> = {
+  department_staff: "bg-teal-100 text-teal-800",
   super_admin: "bg-red-100 text-red-700",
   admin: "bg-orange-100 text-orange-700",
   shipment_creator: "bg-blue-100 text-blue-700",

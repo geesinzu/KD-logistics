@@ -62,6 +62,9 @@ export async function deliverPush(
 
 export async function sendPushToUser(userId: number, payload: PushPayload): Promise<void> {
   if (!isPushConfigured()) return;
+  // Role reassignment must also revoke shipment information in push payloads.
+  const [recipient] = await getDb().select({role:users.role,status:users.status}).from(users).where(eq(users.id,userId)).limit(1);
+  if(!recipient || recipient.status !== "active" || recipient.role === "department_staff")return;
   const subs = await getDb().select().from(pushSubscriptions).where(eq(pushSubscriptions.userId, userId));
   console.log(`[Push] User ${userId}: ${subs.length} subscription(s). Sending: "${payload.title}"`);
   for (const sub of subs) await deliverPush(sub, payload);

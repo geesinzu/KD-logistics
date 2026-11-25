@@ -1,3 +1,4 @@
+import { isDepartmentPackageCode } from "@contracts/department-packages";
 import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useSearchParams } from "react-router";
 import { trpc } from "@/providers/trpc";
@@ -26,9 +27,11 @@ export default function QrScanner() {
 
   const { data: shipment, isLoading } = trpc.shipment.qrValidate.useQuery(
     { token: scanResult || "" },
-    { enabled: !!scanResult }
+    { enabled: !!scanResult && !isDepartmentPackageCode(scanResult) }
   );
 
+  const packageScan = trpc.department.scan.useQuery({code:scanResult||""},{enabled:!!scanResult && isDepartmentPackageCode(scanResult),retry:false});
+  useEffect(()=>{if(packageScan.data)navigate(`/department-packages/${packageScan.data.requestId}?package=${packageScan.data.packageId}`,{replace:true})},[packageScan.data,navigate]);
   const pickupMutation = trpc.shipment.driverPickup.useMutation({
     onSuccess: () => {
       utils.shipment.list.invalidate();
@@ -242,6 +245,7 @@ export default function QrScanner() {
         <h1 className="workflow-title">Scan QR Code</h1>
       </div>
 
+      {scanResult && isDepartmentPackageCode(scanResult) && <div className="p-5"><p role={packageScan.error?"alert":"status"}>{packageScan.error?.message||"Finding department package…"}</p><Button variant="outline" onClick={()=>setScanResult(null)}>Scan another label</Button></div>}
       {!scanResult && (
         <div className="p-4">
           {/* Camera view */}
@@ -319,13 +323,13 @@ export default function QrScanner() {
 
           {/* Manual entry - always visible */}
           <div className="bg-gray-50 rounded-lg p-4">
-            <p className="text-xs text-gray-500 mb-2 text-center font-medium">Or enter tracking ID manually</p>
+            <p className="text-xs text-gray-500 mb-2 text-center font-medium">Or enter a shipment or department package reference</p>
             <div className="flex gap-2">
               <input
                 value={manualInput}
                 onChange={e => setManualInput(e.target.value)}
                 aria-label="Tracking ID"
-                placeholder="Enter tracking ID (e.g., KEDI-EN2606506)"
+                placeholder="e.g. KEDI-EN2606506 or DP-13/1"
                 className="flex-1 min-w-0 h-10 px-3 rounded-lg border border-gray-200 text-sm"
                 onKeyDown={e => e.key === "Enter" && handleManual()}
               />
@@ -336,7 +340,7 @@ export default function QrScanner() {
       )}
 
       {/* Scan Result */}
-      {scanResult && (
+      {scanResult && !isDepartmentPackageCode(scanResult) && (
         <div className="p-4">
           {isLoading && (
             <div className="text-center py-8">

@@ -1,3 +1,4 @@
+import { ShipmentPackages } from "@/components/departments/ShipmentPackages";
 import { useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
@@ -480,6 +481,7 @@ export default function ShipmentDetail() {
           )}
         </div>
 
+        <ShipmentPackages shipmentId={shipment.id} destinationId={shipment.destBranchId}/>
         <ShipmentDocuments shipmentId={shipment.id} />
 
         {/* Timeline */}
