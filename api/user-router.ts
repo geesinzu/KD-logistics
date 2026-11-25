@@ -4,7 +4,7 @@ import bcrypt from "bcryptjs";
 import { eq, like, desc, sql, and, or, ne } from "drizzle-orm";
 import { users, branches } from "@db/schema";
 import { getDb } from "./queries/connection";
-import { createRouter, adminQuery, superAdminQuery, authedQuery } from "./middleware";
+import { createRouter, adminQuery, superAdminQuery, authedQuery, staffQuery } from "./middleware";
 import { assertStaffAuthority } from "./lib/staff-permissions";
 import { KEDI_ROLES } from "@contracts/constants";
 import type { KediRole } from "@contracts/constants";
@@ -98,6 +98,7 @@ export const userRouter = createRouter({
     .input(z.object({ id: z.number(), role: z.enum(KEDI_ROLES) }))
     .mutation(async ({ input }) => {
       const db = getDb();
+      if (input.role === "department_staff") throw new TRPCError({code:"BAD_REQUEST",message:"Assign department staff from Department packages → Staff access."});
       await db.update(users).set({ role: input.role as KediRole }).where(eq(users.id, input.id));
       return { success: true };
     }),
@@ -118,6 +119,7 @@ export const userRouter = createRouter({
     .input(z.object({ id: z.number().int().positive(), role: z.enum(KEDI_ROLES), branchId: z.number().int().positive().nullable() }))
     .mutation(async ({ input, ctx }) => getDb().transaction(async tx => {
       assertStaffAuthority(ctx.user.role, input.role);
+      if (input.role === "department_staff") throw new TRPCError({code:"BAD_REQUEST",message:"Use Department packages → Staff access to assign a department."});
       const [target] = await tx.select().from(users).where(eq(users.id, input.id)).limit(1).for("update");
       if (!target) throw new TRPCError({ code: "NOT_FOUND", message: "Staff member not found" });
       assertStaffAuthority(ctx.user.role, input.role, target.role);
@@ -187,6 +189,7 @@ export const userRouter = createRouter({
     }))
     .mutation(async ({ input, ctx }) => {
       assertStaffAuthority(ctx.user.role, input.role);
+      if (input.role === "department_staff") throw new TRPCError({code:"BAD_REQUEST",message:"Use Department packages → Staff access to assign a department."});
       const db = getDb();
       const existing = await db.select().from(users).where(eq(users.phone, input.phone)).limit(1);
       if (existing.length > 0) throw new Error("Phone number already exists");
@@ -219,7 +222,7 @@ export const userRouter = createRouter({
     };
   }),
 
-  updateProfile: authedQuery
+  updateProfile: staffQuery
     .input(z.object({
       name: z.string().min(2).optional(),
       email: z.string().email().optional().or(z.literal("")),
@@ -234,7 +237,7 @@ export const userRouter = createRouter({
       return { success: true };
     }),
 
-  uploadProfilePicture: authedQuery
+  uploadProfilePicture: staffQuery
     .input(z.object({
       imageBase64: z.string().min(100),
     }))

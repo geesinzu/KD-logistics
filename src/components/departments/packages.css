@@ -1,0 +1,42 @@
+.department-label-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 20px;
+}
+.department-label {
+  border: 1px solid #adbbc7;
+  border-radius: 12px;
+  padding: 24px;
+  overflow-wrap: anywhere;
+  background: white;
+  color: #14294d;
+  min-height: 280px;
+}
+.department-label header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.department-label-logo {
+  width: 95px;
+}
+.department-label h2 {
+  font-size: 26px;
+  font-weight: 700;
+  margin: 24px 0;
+}
+.department-label p {
+  margin: 12px 0;
+}
+.department-label-qr {
+  width: 116px;
+  height: 116px;
+  float: right;
+}
+.department-label footer {
+  clear: both;
+  padding-top: 20px;
+  font-size: 13px;
+  color: #526574;
+}

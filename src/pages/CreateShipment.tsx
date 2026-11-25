@@ -1,3 +1,4 @@
+import { WaitingPackages } from "@/components/departments/WaitingPackages";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
@@ -15,6 +16,7 @@ export default function CreateShipment() {
   const [receiverPhone, setReceiverPhone] = useState("");
   const [description, setDescription] = useState("");
   const [priority, setPriority] = useState("normal");
+  const [departmentPackageIds,setDepartmentPackageIds] = useState<number[]>([]);
   const [error, setError] = useState("");
 
   const utils = trpc.useUtils();
@@ -35,6 +37,7 @@ export default function CreateShipment() {
     if (!destBranchId) { setError("Please select a destination branch"); return; }
     createMutation.mutate({
       destBranchId: Number(destBranchId),
+      departmentPackageIds,
       receiverName: receiverName || undefined,
       receiverPhone: receiverPhone || undefined,
       description: description || undefined,
@@ -70,7 +73,7 @@ export default function CreateShipment() {
           {branchesError && <p role="alert" className="text-sm text-red-600">Could not load branch offices. <button type="button" className="underline" onClick={() => void reloadBranches()}>Try again</button></p>}
           <div>
             <Label htmlFor="destination">To (Destination Branch) *</Label>
-            <Select value={destBranchId} onValueChange={setDestBranchId}>
+            <Select value={destBranchId} onValueChange={value=>{setDestBranchId(value);setDepartmentPackageIds([])}}>
               <SelectTrigger id="destination" disabled={branchesLoading || !!branchesError}><SelectValue placeholder={branchesLoading ? "Loading offices…" : "Select destination branch"} /></SelectTrigger>
               <SelectContent>
                 {destBranches.map(b => <SelectItem key={b.id} value={String(b.id)}>{b.name} ({b.city})</SelectItem>)}
@@ -82,6 +85,7 @@ export default function CreateShipment() {
               </p>
             )}
           </div>
+          {destBranchId && <WaitingPackages key={destBranchId} branchId={Number(destBranchId)} selected={departmentPackageIds} onChange={setDepartmentPackageIds}/>}
           <div><Label htmlFor="receiver-name">Receiver Name</Label><Input id="receiver-name" value={receiverName} onChange={e => setReceiverName(e.target.value)} placeholder="Who receives this shipment" /></div>
           <div><Label htmlFor="receiver-phone">Receiver Phone</Label><Input id="receiver-phone" type="tel" value={receiverPhone} onChange={e => setReceiverPhone(e.target.value)} placeholder="+234 802 345 6789" /></div>
           <div><Label htmlFor="shipment-description">Description</Label><Textarea id="shipment-description" value={description} onChange={e => setDescription(e.target.value)} placeholder="What's being shipped..." /></div>

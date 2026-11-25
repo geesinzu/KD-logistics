@@ -1,6 +1,7 @@
+import { PACKAGE_READ_ROLES } from "@contracts/department-packages";
 import { TRANSFER_ROLES } from "@contracts/operations";
 import { lazy, Suspense } from "react";
-import { Routes, Route, Navigate } from "react-router";
+import { Routes, Route, Navigate, useLocation } from "react-router";
 import { useAuth } from "./hooks/useAuth";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
@@ -24,6 +25,9 @@ import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 import { AppLayout } from "./components/AppLayout";
 
+const DepartmentPackages = lazy(() => import("./pages/DepartmentPackages"));
+const DepartmentPackageDetail = lazy(() => import("./pages/DepartmentPackageDetail"));
+const DepartmentAccess = lazy(() => import("./pages/DepartmentAccess"));
 const Documents = lazy(() => import("./pages/Documents"));
 const Transfers = lazy(() => import("./pages/Transfers"));
 const TransferCreate = lazy(() => import("./pages/TransferCreate"));
@@ -33,9 +37,11 @@ function OperationsPage({ children }: { children: React.ReactNode }) { return <S
 
 function ProtectedRoute({ children, requiredRoles }: { children: React.ReactNode; requiredRoles?: string[] }) {
   const { user, isLoading, isAuthenticated } = useAuth();
+  const location = useLocation();
   if (isLoading) return <div className="flex items-center justify-center h-screen"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-[#003B7A]" /></div>;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   if (user?.status === "pending") return <Navigate to="/pending" replace />;
+  if (user?.role === "department_staff" && !["/department-packages", "/profile"].some(path => location.pathname === path || location.pathname.startsWith(path + "/"))) return <Navigate to="/department-packages" replace />;
   if (requiredRoles && !requiredRoles.includes(user?.role || "")) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
@@ -56,6 +62,9 @@ export default function App() {
 
       {/* KEDI App with bottom nav */}
       <Route element={<AppLayout />}>
+        <Route path="/department-packages/access" element={<ProtectedRoute requiredRoles={["super_admin"]}><OperationsPage><DepartmentAccess /></OperationsPage></ProtectedRoute>} />
+        <Route path="/department-packages" element={<ProtectedRoute requiredRoles={[...PACKAGE_READ_ROLES]}><OperationsPage><DepartmentPackages /></OperationsPage></ProtectedRoute>} />
+        <Route path="/department-packages/:id" element={<ProtectedRoute requiredRoles={[...PACKAGE_READ_ROLES]}><OperationsPage><DepartmentPackageDetail /></OperationsPage></ProtectedRoute>} />
         <Route path="/" element={<ProtectedRoute><Dashboard /></ProtectedRoute>} />
         <Route path="/documents" element={<ProtectedRoute><OperationsPage><Documents /></OperationsPage></ProtectedRoute>} />
         <Route path="/transfers" element={<ProtectedRoute requiredRoles={transferRoles}><OperationsPage><Transfers /></OperationsPage></ProtectedRoute>} />

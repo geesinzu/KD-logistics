@@ -1,3 +1,4 @@
+import { departmentRouter } from "./department-router";
 import { operationsRouter } from "./operations-router";
 import { reportRouter } from "./report-router";
 import { authRouter } from "./auth-router";
@@ -30,6 +31,7 @@ export const appRouter = createRouter({
       return { ok: false, db: "error", error: e.message };
     }
   }),
+  department: departmentRouter,
   auth: authRouter,
   user: userRouter,
   branch: branchRouter,

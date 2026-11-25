@@ -1,3 +1,5 @@
+import { includeDepartmentPackages, releaseDepartmentPackages } from "./lib/department-packages";
+import { departmentsReady, requireDepartmentsReady } from "./lib/department-schema";
 import { branchTrackingCode } from "./lib/branch-tracking";
 import { z } from "zod";
 import { TRPCError } from "@trpc/server";
@@ -240,15 +242,18 @@ export const shipmentRouter = createRouter({
   // ── CREATE SHIPMENT (Step 1) ──
   create: shipmentCreatorQuery
     .input(z.object({
-      destBranchId: z.number(),
+      destBranchId: z.number().int().positive(),
+      departmentPackageIds: z.array(z.number().int().positive()).max(100).default([]),
       receiverName: z.string().optional(),
       receiverPhone: z.string().optional(),
       description: z.string().optional(),
       priority: z.enum(["normal", "urgent", "low"]).default("normal"),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
+      if(input.departmentPackageIds.length)await requireDepartmentsReady();
+      const result = await getDb().transaction(async db => {
       const branch = await db.select().from(branches).where(eq(branches.id, input.destBranchId)).limit(1);
+      if(!branch[0] || branch[0].status !== "active")throw new TRPCError({code:"BAD_REQUEST",message:"Choose an active branch."});
       const result = await db.insert(shipments).values({
         createdBy: ctx.user.id,
         creatorRole: ctx.user.role,
@@ -272,8 +277,12 @@ export const shipmentRouter = createRouter({
         createdBy: ctx.user.id,
         actorRole: ctx.user.role,
       });
+      if(input.departmentPackageIds.length)await includeDepartmentPackages(db,input.departmentPackageIds,shipmentId,input.destBranchId,ctx.user.id);
+      return {shipmentId,branch:branch[0]};
+      });
+      const {shipmentId}=result;
       // Push notification to destination (and hub) branch managers
-      const trackingId = branch[0] ? generateTrackingId(branch[0]) : "pending";
+      const trackingId = result.branch ? generateTrackingId(result.branch) : "pending";
       void notifyShipmentCreated(shipmentId, input.destBranchId, trackingId).catch(() => {});
       return { success: true, shipmentId };
     }),
@@ -304,27 +313,26 @@ export const shipmentRouter = createRouter({
       return result;
     }),
 
-  // ── CREATE SHIPMENTS FOR SEVERAL BRANCHES AT ONCE ──
-  // Same per-shipment logic as `create` above, just looped -- one shared
-  // description, each branch keeping its own receiver and priority. No SQL
-  // transaction wrapping the loop: nothing else in this file uses one
-  // either, so a partial failure leaves whatever succeeded so far created,
-  // the same risk profile the rest of the system already has.
+  // Bulk creation commits shipments, department selections and history together.
   createBulk: shipmentCreatorQuery
     .input(z.object({
       description: z.string().optional(),
       branches: z.array(z.object({
-        destBranchId: z.number(),
+        destBranchId: z.number().int().positive(),
+        departmentPackageIds: z.array(z.number().int().positive()).max(100).default([]),
         receiverName: z.string().optional(),
         receiverPhone: z.string().optional(),
         priority: z.enum(["normal", "urgent", "low"]).default("normal"),
       })).min(1),
     }))
     .mutation(async ({ input, ctx }) => {
-      const db = getDb();
+      if(input.branches.some(b=>b.departmentPackageIds.length))await requireDepartmentsReady();
+      const batch = await getDb().transaction(async db => {
+      const notifications: {id:number;branchId:number;trackingId:string}[]=[];
       const shipmentIds: number[] = [];
       for (const b of input.branches) {
         const branch = await db.select().from(branches).where(eq(branches.id, b.destBranchId)).limit(1);
+        if(!branch[0]||branch[0].status!=="active")throw new TRPCError({code:"BAD_REQUEST",message:"Choose active destination branches."});
         const result = await db.insert(shipments).values({
           createdBy: ctx.user.id,
           creatorRole: ctx.user.role,
@@ -348,9 +356,13 @@ export const shipmentRouter = createRouter({
           actorRole: ctx.user.role,
         });
         const trackingId = branch[0] ? generateTrackingId(branch[0]) : "pending";
-        void notifyShipmentCreated(shipmentId, b.destBranchId, trackingId).catch(() => {});
+        if(b.departmentPackageIds.length)await includeDepartmentPackages(db,b.departmentPackageIds,shipmentId,b.destBranchId,ctx.user.id);
+        notifications.push({id:shipmentId,branchId:b.destBranchId,trackingId});
       }
-      return { success: true, shipmentIds };
+      return {shipmentIds,notifications};
+      });
+      for(const n of batch.notifications)void notifyShipmentCreated(n.id,n.branchId,n.trackingId).catch(()=>{});
+      return { success: true, shipmentIds:batch.shipmentIds };
     }),
 
   // ── WAREHOUSE: INPUT ITEMS & GENERATE LABEL (Step 2-3) ──
@@ -1469,7 +1481,9 @@ export const shipmentRouter = createRouter({
   cancel: adminQuery
     .input(z.object({ shipmentId: z.number(), reason: z.string() }))
     .mutation(async ({ input, ctx }) => {
+      const packagesReady=await departmentsReady();
       return withShipmentLock(getDb(), input.shipmentId, async (db, lockedShipment, afterCommit) => {
+        if(packagesReady)await releaseDepartmentPackages(db,input.shipmentId,ctx.user.id,"Shipment cancelled: "+input.reason);
         assertStage(lockedShipment.status, ["created", "labeled", "assigned_to_3pl", "waiting_driver_pickup", "picked_up", "at_3pl", "waiting_3pl_pickup", "picked_up_by_3pl", "tpl_confirmed", "in_transit_with_3pl", "partially_delivered"]);
         await db.update(shipments).set({ status: "cancelled" }).where(eq(shipments.id, input.shipmentId));
         await db.insert(trackingEvents).values({
@@ -1493,7 +1507,9 @@ export const shipmentRouter = createRouter({
     .input(z.object({ shipmentId: z.number(), reason: z.string().min(3, "Please provide a reason") }))
     .mutation(async ({ input, ctx }) => {
       const filesReady = await operationsReady();
+      const packagesReady = await departmentsReady();
       return withShipmentLock(getDb(), input.shipmentId, async (db, record) => {
+        if(packagesReady)await releaseDepartmentPackages(db,input.shipmentId,ctx.user.id,"Shipment deleted: "+input.reason);
 
         await db.insert(activityLog).values({
           userId: ctx.user.id,

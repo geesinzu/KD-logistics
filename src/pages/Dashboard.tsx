@@ -1,3 +1,4 @@
+import { ExpectedPackages } from "@/components/departments/ExpectedPackages";
 import { Link, useSearchParams } from "react-router";
 import { useAuth } from "@/hooks/useAuth";
 import { trpc } from "@/providers/trpc";
@@ -60,6 +61,7 @@ export default function Dashboard() {
 
   return (
     <div className="operations-dashboard">
+      <ExpectedPackages />
       <p className="operations-eyebrow">YOUR OPERATIONS, AT A GLANCE</p>
       <div className="operations-heading">
         <div><h1>Welcome back, {user?.name.split(" ")[0] || "there"}.</h1><p>Let’s keep things moving. Here’s your selected month at a glance.</p></div>

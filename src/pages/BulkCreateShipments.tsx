@@ -1,3 +1,4 @@
+import { WaitingPackages } from "@/components/departments/WaitingPackages";
 import { useState } from "react";
 import { useNavigate } from "react-router";
 import { trpc } from "@/providers/trpc";
@@ -30,6 +31,7 @@ const PRIORITY_STYLE: Record<Priority, string> = {
 
 export default function BulkCreateShipments() {
   const navigate = useNavigate();
+  const [packageSelections,setPackageSelections]=useState<Record<number,number[]>>({});
   const [step, setStep] = useState<1 | 2>(1);
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [description, setDescription] = useState("");
@@ -121,6 +123,7 @@ export default function BulkCreateShipments() {
         receiverName: r.receiverName || undefined,
         receiverPhone: r.receiverPhone || undefined,
         priority: r.priority,
+        departmentPackageIds: packageSelections[r.branchId]??[],
       })),
     });
   }
@@ -210,6 +213,7 @@ export default function BulkCreateShipments() {
                   <p className={`text-[10px] mt-1 ${r.hasHistory ? "text-gray-400" : "text-amber-600"}`}>
                     {r.hasHistory ? "Pulled from their last shipment — edit if it's changed" : "No prior shipment to this branch — enter manually"}
                   </p>
+                  <WaitingPackages branchId={r.branchId} selected={packageSelections[r.branchId]??[]} onChange={ids=>setPackageSelections(prev=>({...prev,[r.branchId]:ids}))}/>
                 </div>
               ))}
             </div>

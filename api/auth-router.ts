@@ -5,7 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { users } from "@db/schema";
 import { getDb } from "./queries/connection";
 import { createToken } from "./lib/auth";
-import { createRouter, publicQuery, authedQuery, kediQuery } from "./middleware";
+import { createRouter, publicQuery, sessionQuery, staffQuery } from "./middleware";
 import { ErrorMessages } from "@contracts/constants";
 
 // Nigerian local format, e.g. 08012345678 -- matches the placeholder already
@@ -14,7 +14,7 @@ const PHONE_REGEX = /^\d{11}$/;
 const PHONE_MESSAGE = "Enter an 11-digit phone number";
 
 export const authRouter = createRouter({
-  me: kediQuery.query(async ({ ctx }) => {
+  me: staffQuery.query(async ({ ctx }) => {
     const db = getDb();
     const userId = ctx.user.id;
     if (!userId) throw new TRPCError({ code: "UNAUTHORIZED" });
@@ -97,7 +97,7 @@ export const authRouter = createRouter({
       return { token, user: safeUser };
     }),
 
-  logout: authedQuery.mutation(() => {
+  logout: sessionQuery.mutation(() => {
     return { success: true };
   }),
 });

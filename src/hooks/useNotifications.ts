@@ -33,7 +33,7 @@ export function useRecentActivity(limit = 30) {
   const { user } = useAuth();
   return trpc.shipment.recentActivity.useQuery(
     { limit },
-    { enabled: !!user, refetchInterval: 20_000 },
+    { enabled: !!user && user.role !== "department_staff", refetchInterval: 20_000 },
   );
 }
 

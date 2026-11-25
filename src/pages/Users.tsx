@@ -20,7 +20,7 @@ function digitsOnly11(v: string) { return v.replace(/\D/g, "").slice(0, 11); }
 
 export default function Users() {
   const { isSuperAdmin } = useAuth();
-  const assignableRoles = KEDI_ROLES.filter(role => isSuperAdmin || !["super_admin", "admin"].includes(role));
+  const assignableRoles = KEDI_ROLES.filter(role => role !== "department_staff" && (isSuperAdmin || !["super_admin", "admin"].includes(role)));
   const [editingStaff, setEditingStaff] = useState<{ id: number; name: string; phone: string; email: string; branchId: string; role: string } | null>(null);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("");

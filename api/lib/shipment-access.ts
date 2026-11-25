@@ -9,6 +9,7 @@ export function assertShipmentReadAccess(ctx: Pick<TrpcContext, "user" | "tplUse
     return;
   }
   const user = ctx.user;
+  if (user?.role === "department_staff") throw new TRPCError({code:"FORBIDDEN",message:"Department accounts cannot access branch shipments."});
   if (!user) throw new TRPCError({ code: "UNAUTHORIZED" });
   if (user.role === "driver" && s.assignedDriverId !== user.id) throw new TRPCError({ code: "FORBIDDEN", message: "This shipment is not assigned to you." });
   if (user.role === "branch_manager" && (!user.branchId || (s.destBranchId !== user.branchId && s.hubBranchId !== user.branchId))) throw new TRPCError({ code: "FORBIDDEN", message: "This shipment is not routed to your branch." });
